@@ -50,8 +50,9 @@ function maybeNotifyWaterLow({
     waterPercent: nextWater,
     ts: new Date().toISOString(),
     message: `Riserva idrica sotto il 20% in ${zoneName || zoneId}`,
-  }).catch(() => {
-    /* non bloccare il tick */
+  }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[notify] water_low webhook failed", err?.message || err);
   });
 }
 
@@ -91,8 +92,9 @@ function maybeNotifyWaterRapidDrop({
     deltaPercent,
     ts: new Date().toISOString(),
     message: `Calo rapido riserva idrica in ${zoneName || zoneId} (Δ ≈ ${deltaPercent != null ? Math.round(deltaPercent) : "?"}%)`,
-  }).catch(() => {
-    /* non bloccare il tick */
+  }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[notify] water_rapid_drop webhook failed", err?.message || err);
   });
 }
 
@@ -132,8 +134,9 @@ function maybeNotifyEnvThreshold(p) {
     value,
     ts: new Date().toISOString(),
     message: message || `${alarmType} in ${zoneName || zoneId}`,
-  }).catch(() => {
-    /* non bloccare */
+  }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[notify] env_threshold webhook failed", err?.message || err);
   });
 }
 

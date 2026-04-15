@@ -1,6 +1,10 @@
 const fs = require("fs");
 const path = require("path");
 
+const MAX_CACHE_ROWS_PER_ZONE = 25000;
+/** @type {Map<string, { loaded: boolean, byZone: Map<string, any[]> }>} */
+const caches = new Map();
+
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
@@ -9,12 +13,45 @@ function readingsPath(dataDir) {
   return path.join(dataDir, "readings.jsonl");
 }
 
-function appendReading(
-  dataDir,
-  { zoneId, temp, water, humidityPct, co2Ppm, vocIndex }
-) {
-  ensureDir(dataDir);
-  const line = `${JSON.stringify({
+function parseRow(line) {
+  try {
+    const row = JSON.parse(line);
+    if (row && typeof row.zone === "string") return row;
+  } catch {
+    /* ignore malformed lines */
+  }
+  return null;
+}
+
+function ensureCache(dataDir) {
+  let cache = caches.get(dataDir);
+  if (!cache) {
+    cache = { loaded: false, byZone: new Map() };
+    caches.set(dataDir, cache);
+  }
+  if (cache.loaded) return cache;
+
+  const file = readingsPath(dataDir);
+  if (fs.existsSync(file)) {
+    const raw = fs.readFileSync(file, "utf8");
+    for (const line of raw.split("\n")) {
+      if (!line.trim()) continue;
+      const row = parseRow(line);
+      if (!row) continue;
+      const arr = cache.byZone.get(row.zone) || [];
+      arr.push(row);
+      if (arr.length > MAX_CACHE_ROWS_PER_ZONE) {
+        arr.splice(0, arr.length - MAX_CACHE_ROWS_PER_ZONE);
+      }
+      cache.byZone.set(row.zone, arr);
+    }
+  }
+  cache.loaded = true;
+  return cache;
+}
+
+function materializeRow({ zoneId, temp, water, humidityPct, co2Ppm, vocIndex }) {
+  return {
     iso: new Date().toISOString(),
     zone: zoneId,
     temp,
@@ -25,25 +62,35 @@ function appendReading(
         : Number(humidityPct),
     co2: co2Ppm === undefined || co2Ppm === null ? null : Number(co2Ppm),
     voc: vocIndex === undefined || vocIndex === null ? null : Number(vocIndex),
-  })}\n`;
-  fs.appendFileSync(readingsPath(dataDir), line, "utf8");
+  };
+}
+
+function appendReading(
+  dataDir,
+  { zoneId, temp, water, humidityPct, co2Ppm, vocIndex }
+) {
+  ensureDir(dataDir);
+  const row = materializeRow({ zoneId, temp, water, humidityPct, co2Ppm, vocIndex });
+  const line = `${JSON.stringify(row)}\n`;
+  const cache = ensureCache(dataDir);
+  const arr = cache.byZone.get(zoneId) || [];
+  arr.push(row);
+  if (arr.length > MAX_CACHE_ROWS_PER_ZONE) {
+    arr.splice(0, arr.length - MAX_CACHE_ROWS_PER_ZONE);
+  }
+  cache.byZone.set(zoneId, arr);
+
+  fs.appendFile(readingsPath(dataDir), line, "utf8", (err) => {
+    if (err) {
+      // eslint-disable-next-line no-console
+      console.error("[history] append failed", err.message || err);
+    }
+  });
 }
 
 function readRawZoneRows(dataDir, zoneId, limit) {
-  const file = readingsPath(dataDir);
-  if (!fs.existsSync(file)) return [];
-
-  const raw = fs.readFileSync(file, "utf8");
-  const lines = raw.split("\n").filter((l) => l.trim());
-  const rows = [];
-  for (const line of lines) {
-    try {
-      const r = JSON.parse(line);
-      if (r && r.zone === zoneId) rows.push(r);
-    } catch {
-      /* skip */
-    }
-  }
+  const cache = ensureCache(dataDir);
+  const rows = cache.byZone.get(zoneId) || [];
   return rows.slice(-limit);
 }
 

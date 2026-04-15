@@ -27,8 +27,15 @@ export function normalizeDashboardPayload(data) {
     data.showerTemperature?.points ||
     [];
 
-  const labels = series.map((p) => String(p.label ?? p.t ?? ""));
-  const values = series.map((p) => num(p.value, NaN)).filter((n) => !Number.isNaN(n));
+  const cleanSeries = series
+    .map((p) => ({
+      label: String(p.label ?? p.t ?? ""),
+      value: num(p.value, NaN),
+    }))
+    .filter((p) => !Number.isNaN(p.value));
+
+  const labels = cleanSeries.map((p) => p.label);
+  const values = cleanSeries.map((p) => p.value);
 
   const lastFromSeries = values.length ? values[values.length - 1] : null;
   const lastTempRaw = num(

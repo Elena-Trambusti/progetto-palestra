@@ -2,6 +2,7 @@
 require("dotenv").config();
 const path = require("path");
 const http = require("http");
+const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -24,7 +25,6 @@ const {
   COOKIE,
   attachAuthRoutes,
   gateMiddleware,
-  extractTokenFromWsUrl,
   isValid,
 } = require("./lib/sessions");
 
@@ -40,6 +40,9 @@ const NOTIFY_WEBHOOK = (process.env.NOTIFY_WEBHOOK_URL || "").trim();
 const INGEST_SECRET = (process.env.INGEST_SECRET || "").trim();
 const DISABLE_AUTO_TICK =
   String(process.env.DISABLE_AUTO_TICK || "").toLowerCase() === "true";
+const NODE_ENV = String(process.env.NODE_ENV || "development").toLowerCase();
+const IS_PROD = NODE_ENV === "production";
+const TRUST_PROXY = String(process.env.TRUST_PROXY || "").toLowerCase() === "true";
 
 const WATER_ETA_LOOKBACK_MS =
   Number(process.env.WATER_ETA_LOOKBACK_MS) || 45 * 60 * 1000;
@@ -53,6 +56,36 @@ if (REQUIRE_AUTH && !AUTH_PASSWORD) {
     "[config] REQUIRE_AUTH=true ma AUTH_PASSWORD è vuota. Imposta AUTH_PASSWORD nel file .env del server."
   );
   process.exit(1);
+}
+
+if (IS_PROD) {
+  if (!REQUIRE_AUTH) {
+    console.error("[config] In production REQUIRE_AUTH deve essere true.");
+    process.exit(1);
+  }
+  if (!INGEST_SECRET) {
+    console.error("[config] In production devi impostare INGEST_SECRET.");
+    process.exit(1);
+  }
+  if (CORS_ORIGIN === "*") {
+    console.error("[config] In production CORS_ORIGIN='*' non è consentito.");
+    process.exit(1);
+  }
+}
+
+function logEvent(level, msg, extra = {}) {
+  const payload = {
+    level,
+    msg,
+    ts: new Date().toISOString(),
+    ...extra,
+  };
+  const line = JSON.stringify(payload);
+  if (level === "error" || level === "warn") {
+    console.error(line);
+    return;
+  }
+  console.log(line);
 }
 
 function hashZoneSeed(id) {
@@ -398,11 +431,17 @@ function buildSnapshotPayload(zoneId) {
 }
 
 const app = express();
+const metrics = {
+  requestsTotal: 0,
+  requests4xx: 0,
+  requests5xx: 0,
+};
 
 /** Popolato dopo creazione WebSocketServer */
 let broadcastSnapshots = () => {};
 
 app.disable("x-powered-by");
+if (TRUST_PROXY) app.set("trust proxy", 1);
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cookieParser());
 app.use(
@@ -413,7 +452,70 @@ app.use(
   })
 );
 app.use(express.json({ limit: "256kb" }));
+app.use((req, res, next) => {
+  const reqId = req.get("x-request-id") || crypto.randomUUID();
+  req.reqId = reqId;
+  res.setHeader("x-request-id", reqId);
+  const started = Date.now();
+  res.on("finish", () => {
+    metrics.requestsTotal += 1;
+    if (res.statusCode >= 500) metrics.requests5xx += 1;
+    else if (res.statusCode >= 400) metrics.requests4xx += 1;
+    logEvent("info", "request", {
+      reqId,
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      ms: Date.now() - started,
+    });
+  });
+  next();
+});
 
+function makeRateLimit({ windowMs, max, keyPrefix }) {
+  /** @type {Map<string, number[]>} */
+  const hits = new Map();
+  return (req, res, next) => {
+    const now = Date.now();
+    const baseKey = req.ip || req.socket.remoteAddress || "unknown";
+    const key = `${keyPrefix}:${baseKey}`;
+    const arr = (hits.get(key) || []).filter((ts) => now - ts < windowMs);
+    arr.push(now);
+    hits.set(key, arr);
+    if (arr.length > max) {
+      return res.status(429).json({ error: "rate_limited", retryAfterMs: windowMs });
+    }
+    return next();
+  };
+}
+
+const limitAuthLogin = makeRateLimit({
+  windowMs: 60_000,
+  max: 8,
+  keyPrefix: "auth-login",
+});
+const limitIngest = makeRateLimit({
+  windowMs: 60_000,
+  max: 240,
+  keyPrefix: "ingest",
+});
+const limitReport = makeRateLimit({
+  windowMs: 60_000,
+  max: 30,
+  keyPrefix: "report",
+});
+
+function validateIsoRange(fromIso, toIso) {
+  if (!fromIso && !toIso) return true;
+  const from = fromIso ? new Date(fromIso).getTime() : null;
+  const to = toIso ? new Date(toIso).getTime() : null;
+  if (fromIso && !Number.isFinite(from)) return false;
+  if (toIso && !Number.isFinite(to)) return false;
+  if (from != null && to != null && from > to) return false;
+  return true;
+}
+
+app.use("/api/auth/login", limitAuthLogin);
 attachAuthRoutes(app, { requireAuth: REQUIRE_AUTH, authPassword: AUTH_PASSWORD });
 
 const apiGate = gateMiddleware({ requireAuth: REQUIRE_AUTH, apiKey: API_KEY });
@@ -447,6 +549,27 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
+app.get("/readyz", (_req, res) => {
+  res.json({
+    ok: true,
+    env: NODE_ENV,
+    requireAuth: REQUIRE_AUTH,
+    hasIngestSecret: Boolean(INGEST_SECRET),
+  });
+});
+
+app.get("/metrics", (_req, res) => {
+  res.setHeader("content-type", "text/plain; charset=utf-8");
+  res.send(
+    [
+      `requests_total ${metrics.requestsTotal}`,
+      `requests_4xx ${metrics.requests4xx}`,
+      `requests_5xx ${metrics.requests5xx}`,
+      `websocket_clients ${wss.clients.size}`,
+    ].join("\n")
+  );
+});
+
 app.get("/api/zones", (_req, res) => {
   res.json({
     zones: ZONES.map((x) => ({
@@ -478,6 +601,9 @@ app.get("/api/history", (req, res) => {
   const points = history.readZoneSeries(DATA_DIR, zoneId, limit);
   const fromIso = String(req.query.from || "").trim();
   const toIso = String(req.query.to || "").trim();
+  if (!validateIsoRange(fromIso, toIso)) {
+    return res.status(400).json({ error: "invalid_time_range" });
+  }
   const range =
     fromIso || toIso ? { fromIso: fromIso || undefined, toIso: toIso || undefined } : {};
   const samples = history.readZoneHistoryPoints(
@@ -489,12 +615,15 @@ app.get("/api/history", (req, res) => {
   res.json({ zoneId, limit, points, samples });
 });
 
-app.get("/api/report/csv", (req, res) => {
+app.get("/api/report/csv", limitReport, (req, res) => {
   const q = String(req.query.zoneId || "").trim();
   const zoneId = ZONES.some((z) => z.id === q) ? q : ZONES[0].id;
   const cap = Math.min(15000, Math.max(50, Number(req.query.limit) || 4000));
   const fromIso = String(req.query.from || "").trim();
   const toIso = String(req.query.to || "").trim();
+  if (!validateIsoRange(fromIso, toIso)) {
+    return res.status(400).json({ error: "invalid_time_range" });
+  }
   const range =
     fromIso || toIso ? { fromIso: fromIso || undefined, toIso: toIso || undefined } : {};
   const rows = history.readZoneHistoryPoints(DATA_DIR, zoneId, cap, range);
@@ -506,6 +635,12 @@ app.get("/api/report/csv", (req, res) => {
   );
   const header =
     "iso_utc,zone,temp_c,water_pct,humidity_pct,co2_ppm,voc_index\n";
+  const csvCell = (v) => {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, "\"\"")}"`;
+    return s;
+  };
   const body = rows
     .map((r) =>
       [
@@ -516,7 +651,9 @@ app.get("/api/report/csv", (req, res) => {
         r.humidity ?? "",
         r.co2 ?? "",
         r.voc ?? "",
-      ].join(",")
+      ]
+        .map(csvCell)
+        .join(",")
     )
     .join("\n");
   res.send(header + body);
@@ -537,10 +674,23 @@ function resolveZoneFromWsUrl(url) {
 }
 
 function wsAuthOk(req) {
-  if (!REQUIRE_AUTH) return true;
-  const urlTok = extractTokenFromWsUrl(req.url || "");
+  const keyHeader = req.headers["x-api-key"];
+  const keyMatch =
+    Boolean(API_KEY) &&
+    (Array.isArray(keyHeader)
+      ? keyHeader.some((v) => String(v) === API_KEY)
+      : String(keyHeader || "") === API_KEY);
+
   const cookies = parseCookie(req.headers.cookie || "");
-  const tok = urlTok || cookies[COOKIE] || "";
+  const tok = cookies[COOKIE] || "";
+
+  if (API_KEY) {
+    if (keyMatch) return true;
+    if (REQUIRE_AUTH && isValid(tok)) return true;
+    return false;
+  }
+
+  if (!REQUIRE_AUTH) return true;
   return isValid(tok);
 }
 
@@ -582,7 +732,7 @@ broadcastSnapshots = () => {
   });
 };
 
-app.post("/api/ingest/reading", ingestAuth, (req, res) => {
+app.post("/api/ingest/reading", limitIngest, ingestAuth, (req, res) => {
   const q = String(req.body?.zoneId || "").trim();
   const zoneId = ZONES.some((z) => z.id === q) ? q : "";
   if (!zoneId) {
@@ -596,10 +746,22 @@ app.post("/api/ingest/reading", ingestAuth, (req, res) => {
     return res.status(400).json({ error: "temperatureC_required" });
   }
   const waterPct = req.body?.waterPercent;
+  if (waterPct != null && !Number.isFinite(Number(waterPct))) {
+    return res.status(400).json({ error: "invalid_waterPercent" });
+  }
   const humidityPct =
     req.body?.humidityPercent ?? req.body?.humidityPct ?? req.body?.rh;
+  if (humidityPct != null && !Number.isFinite(Number(humidityPct))) {
+    return res.status(400).json({ error: "invalid_humidityPercent" });
+  }
   const co2Ppm = req.body?.co2Ppm ?? req.body?.co2;
+  if (co2Ppm != null && !Number.isFinite(Number(co2Ppm))) {
+    return res.status(400).json({ error: "invalid_co2Ppm" });
+  }
   const vocIndex = req.body?.vocIndex ?? req.body?.voc ?? req.body?.iaq;
+  if (vocIndex != null && !Number.isFinite(Number(vocIndex))) {
+    return res.status(400).json({ error: "invalid_vocIndex" });
+  }
   const source = req.body?.source;
   applyManualReading(zoneId, {
     tempC: Number(tempC),
@@ -621,7 +783,7 @@ app.post("/api/ingest/reading", ingestAuth, (req, res) => {
   return res.json({ ok: true, zoneId });
 });
 
-setInterval(() => {
+const ticker = setInterval(() => {
   if (!DISABLE_AUTO_TICK) {
     ZONES.forEach((z) => tickZone(z.id));
   }
@@ -646,8 +808,10 @@ server.listen(PORT, () => {
   console.log(`  REST  GET /api/dashboard/snapshot?zoneId=...`);
   console.log(`  REST  GET /api/history?zoneId=...&limit=200&from=&to=`);
   console.log(`  REST  GET /api/report/csv?zoneId=...&limit=4000&from=&to=`);
-  console.log(`  WS    ws://localhost:${PORT}/ws?zoneId=...&token=...`);
-  if (API_KEY) console.log("  API key attiva (header x-api-key o sessione)");
+  console.log(`  WS    ws://localhost:${PORT}/ws?zoneId=...`);
+  if (API_KEY) {
+    console.log("  API key attiva (REST/ingest via header x-api-key)");
+  }
   if (REQUIRE_AUTH) {
     console.log("  Autenticazione attiva (POST /api/auth/login · password da AUTH_PASSWORD)");
   }
@@ -666,3 +830,23 @@ server.listen(PORT, () => {
     console.log("  Simulazione random DISATTIVATA (DISABLE_AUTO_TICK=true) — solo ingest/manuale");
   }
 });
+
+function shutdown(signal) {
+  logEvent("info", "shutdown_start", { signal });
+  clearInterval(ticker);
+  wss.clients.forEach((ws) => {
+    try {
+      ws.close(1001, "server_shutdown");
+    } catch {
+      /* ignore */
+    }
+  });
+  server.close(() => {
+    logEvent("info", "shutdown_done", { signal });
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 5000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

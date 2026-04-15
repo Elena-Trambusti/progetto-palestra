@@ -70,6 +70,7 @@ function extractTokenFromWsUrl(url) {
 }
 
 function attachAuthRoutes(app, { requireAuth, authPassword }) {
+  const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
   app.post("/api/auth/login", (req, res) => {
     if (!requireAuth) {
       return res.json({ ok: true, token: "", message: "Auth disattivata sul server" });
@@ -82,6 +83,7 @@ function attachAuthRoutes(app, { requireAuth, authPassword }) {
     res.cookie(COOKIE, id, {
       httpOnly: true,
       sameSite: "lax",
+      secure: isProd,
       maxAge: TTL_MS,
       path: "/",
     });
