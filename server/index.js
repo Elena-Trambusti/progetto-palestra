@@ -439,9 +439,18 @@ function buildSnapshotPayload(zoneId) {
 
 const app = express();
 const metrics = {
+  startedAt: Date.now(),
   requestsTotal: 0,
   requests4xx: 0,
   requests5xx: 0,
+  requests2xx: 0,
+  requests3xx: 0,
+  requestDurationMsTotal: 0,
+  requestDurationMsMax: 0,
+  wsConnectionsAccepted: 0,
+  wsConnectionsRejected: 0,
+  ingestAccepted: 0,
+  ingestRejected: 0,
 };
 
 /** Popolato dopo creazione WebSocketServer */
@@ -487,15 +496,20 @@ app.use((req, res, next) => {
   res.setHeader("x-request-id", reqId);
   const started = Date.now();
   res.on("finish", () => {
+    const elapsedMs = Date.now() - started;
     metrics.requestsTotal += 1;
+    metrics.requestDurationMsTotal += elapsedMs;
+    metrics.requestDurationMsMax = Math.max(metrics.requestDurationMsMax, elapsedMs);
     if (res.statusCode >= 500) metrics.requests5xx += 1;
     else if (res.statusCode >= 400) metrics.requests4xx += 1;
+    else if (res.statusCode >= 300) metrics.requests3xx += 1;
+    else metrics.requests2xx += 1;
     logEvent("info", "request", {
       reqId,
       method: req.method,
       path: req.path,
       status: res.statusCode,
-      ms: Date.now() - started,
+      ms: elapsedMs,
     });
   });
   next();
@@ -571,10 +585,12 @@ function protectDataApis(req, res, next) {
 function ingestAuth(req, res, next) {
   if (INGEST_SECRET) {
     if (req.get("x-ingest-secret") === INGEST_SECRET) return next();
+    metrics.ingestRejected += 1;
     return res.status(401).json({ error: "ingest_unauthorized" });
   }
   if (API_KEY) {
     if (req.get("x-api-key") === API_KEY) return next();
+    metrics.ingestRejected += 1;
     return res.status(401).json({
       error: "ingest_unauthorized",
       hint: "Imposta x-api-key oppure INGEST_SECRET nel server",
@@ -586,7 +602,11 @@ function ingestAuth(req, res, next) {
 app.use(protectDataApis);
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, ts: new Date().toISOString() });
+  res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    uptimeSec: Math.floor(process.uptime()),
+  });
 });
 
 app.get("/readyz", (_req, res) => {
@@ -595,17 +615,33 @@ app.get("/readyz", (_req, res) => {
     env: NODE_ENV,
     requireAuth: REQUIRE_AUTH,
     hasIngestSecret: Boolean(INGEST_SECRET),
+    wsPath: "/ws",
   });
 });
 
 app.get("/metrics", (_req, res) => {
+  const wsClients = wss.clients.size;
+  const avgReqMs =
+    metrics.requestsTotal > 0
+      ? metrics.requestDurationMsTotal / metrics.requestsTotal
+      : 0;
   res.setHeader("content-type", "text/plain; charset=utf-8");
   res.send(
     [
+      `process_uptime_seconds ${Math.floor(process.uptime())}`,
+      `process_started_at_unix ${Math.floor(metrics.startedAt / 1000)}`,
       `requests_total ${metrics.requestsTotal}`,
+      `requests_2xx ${metrics.requests2xx}`,
+      `requests_3xx ${metrics.requests3xx}`,
       `requests_4xx ${metrics.requests4xx}`,
       `requests_5xx ${metrics.requests5xx}`,
-      `websocket_clients ${wss.clients.size}`,
+      `request_duration_avg_ms ${avgReqMs.toFixed(2)}`,
+      `request_duration_max_ms ${metrics.requestDurationMsMax}`,
+      `websocket_clients ${wsClients}`,
+      `websocket_connections_accepted_total ${metrics.wsConnectionsAccepted}`,
+      `websocket_connections_rejected_total ${metrics.wsConnectionsRejected}`,
+      `ingest_accepted_total ${metrics.ingestAccepted}`,
+      `ingest_rejected_total ${metrics.ingestRejected}`,
     ].join("\n")
   );
 });
@@ -736,9 +772,12 @@ function wsAuthOk(req) {
 
 wss.on("connection", (ws, req) => {
   if (!wsAuthOk(req)) {
+    metrics.wsConnectionsRejected += 1;
+    logEvent("warn", "ws_unauthorized", { ip: req.socket?.remoteAddress || "unknown" });
     ws.close(4001, "unauthorized");
     return;
   }
+  metrics.wsConnectionsAccepted += 1;
 
   const zoneId = resolveZoneFromWsUrl(req.url || "");
   ws._zoneId = zoneId;
@@ -819,6 +858,7 @@ app.post("/api/ingest/reading", limitIngest, ingestAuth, (req, res) => {
       vocIndex === undefined || vocIndex === null ? null : Number(vocIndex),
     source,
   });
+  metrics.ingestAccepted += 1;
   broadcastSnapshots();
   return res.json({ ok: true, zoneId });
 });
@@ -849,12 +889,21 @@ server.on("error", (err) => {
 });
 
 server.listen(PORT, () => {
+  logEvent("info", "server_started", {
+    port: PORT,
+    dataDir: DATA_DIR,
+    env: NODE_ENV,
+    requireAuth: REQUIRE_AUTH,
+    hasApiKey: Boolean(API_KEY),
+    hasIngestSecret: Boolean(INGEST_SECRET),
+  });
   console.log(`Sensor gateway su http://localhost:${PORT}`);
   console.log(`  Dati persistenti in: ${DATA_DIR}`);
   console.log(`  REST  GET /api/zones`);
   console.log(`  REST  GET /api/dashboard/snapshot?zoneId=...`);
   console.log(`  REST  GET /api/history?zoneId=...&limit=200&from=&to=`);
   console.log(`  REST  GET /api/report/csv?zoneId=...&limit=4000&from=&to=`);
+  console.log(`  REST  GET /health · /readyz · /metrics`);
   console.log(`  WS    ws://localhost:${PORT}/ws?zoneId=...`);
   if (API_KEY) {
     console.log("  API key attiva (REST/ingest via header x-api-key)");
@@ -869,9 +918,9 @@ server.listen(PORT, () => {
   }
   console.log("  POST /api/ingest/reading (Arduino / ESP — vedi docs/PROSSIMI_PASSI.md)");
   if (!INGEST_SECRET && !API_KEY) {
-    console.warn(
-      "  [warn] Ingest aperto: imposta INGEST_SECRET o API_KEY in produzione."
-    );
+    logEvent("warn", "ingest_open_warning", {
+      msg: "Ingest aperto: imposta INGEST_SECRET o API_KEY in produzione.",
+    });
   }
   if (DISABLE_AUTO_TICK) {
     console.log("  Simulazione random DISATTIVATA (DISABLE_AUTO_TICK=true) — solo ingest/manuale");
@@ -897,3 +946,13 @@ function shutdown(signal) {
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("unhandledRejection", (reason) => {
+  logEvent("error", "unhandled_rejection", {
+    reason: reason && reason.message ? reason.message : String(reason),
+  });
+});
+process.on("uncaughtException", (err) => {
+  logEvent("error", "uncaught_exception", {
+    error: err && err.message ? err.message : String(err),
+  });
+});

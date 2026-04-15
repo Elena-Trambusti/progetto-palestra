@@ -79,3 +79,5 @@ Dettagli e checklist: **`docs/PROSSIMI_PASSI.md`**.
 ## Documentazione operativa estesa
 
 Vedi **`docs/PIANO_PALESTRA_LIVORNO.md`** (requisiti, sopralluogo, sicurezza, roadmap).
+
+Per operazioni day-2 (monitoraggio, incident response, backup/restore, rollback) usa **`docs/RUNBOOK_OPERATIVO.md`**.
