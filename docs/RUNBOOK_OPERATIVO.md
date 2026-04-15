@@ -5,6 +5,12 @@
 - Verifica variabili prod obbligatorie: `REQUIRE_AUTH=true`, `AUTH_PASSWORD`, `INGEST_SECRET`, `CORS_ORIGIN`.
 - Verifica endpoint salute: `/health`, `/readyz`, `/metrics`.
 
+## Osservabilita` minima (SLO operativi)
+- **Disponibilita` API**: `/health` deve rispondere `200` con `ok: true`.
+- **Prontezza servizio**: `/readyz` deve esporre `requireAuth`, `hasIngestSecret`, `wsPath`.
+- **Error budget HTTP**: `requests_5xx / requests_total < 1%` su finestra 15 minuti.
+- **Stabilita` WS**: `websocket_connections_rejected_total` deve restare vicino a 0 in condizioni normali.
+
 ## Avvio produzione (Docker)
 1. Aggiorna credenziali in `docker-compose.yml` o in file `.env`.
 2. Esegui `docker compose up -d --build`.
@@ -16,6 +22,20 @@
 - **Webhook alert non inviati**: cerca warning `[notify]` nei log.
 - **Autenticazione fallita**: verifica `REQUIRE_AUTH`, `AUTH_PASSWORD`, cookie HTTP-only e `CORS_ORIGIN`.
 - **Ingest rifiutato**: verifica header `x-ingest-secret` e rate limit.
+
+### Comandi diagnostici rapidi
+```bash
+curl -s http://localhost:4000/health
+curl -s http://localhost:4000/readyz
+curl -s http://localhost:4000/metrics
+docker compose logs --since=15m gateway
+```
+
+### Metriche chiave da monitorare
+- `requests_total`, `requests_2xx`, `requests_4xx`, `requests_5xx`
+- `request_duration_avg_ms`, `request_duration_max_ms`
+- `websocket_clients`, `websocket_connections_accepted_total`, `websocket_connections_rejected_total`
+- `ingest_accepted_total`, `ingest_rejected_total`
 
 ## Backup e restore
 - Dati storici persistono nel volume Docker `gateway_data` (`/app/data/readings.jsonl`).
