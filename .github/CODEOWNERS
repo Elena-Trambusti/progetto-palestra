@@ -1,0 +1,7 @@
+# Default owner for entire repository
+* @Elena-Trambusti
+
+# Backend and infrastructure critical paths
+server/** @Elena-Trambusti
+.github/workflows/** @Elena-Trambusti
+docs/** @Elena-Trambusti

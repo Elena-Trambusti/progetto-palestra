@@ -37,6 +37,13 @@ docker compose logs --since=15m gateway
 - `websocket_clients`, `websocket_connections_accepted_total`, `websocket_connections_rejected_total`
 - `ingest_accepted_total`, `ingest_rejected_total`
 
+### Alert operativi automatici (webhook `ops_alert`)
+- **5xx rate alto**: trigger quando `requests_5xx / requests_total` supera `OPS_ALERT_5XX_RATE_PCT` nella finestra `OPS_ALERT_WINDOW_MS` (solo oltre `OPS_ALERT_MIN_REQUESTS` richieste).
+- **Spike WS reject**: trigger se i reject WS nella finestra superano `OPS_ALERT_WS_REJECTS_DELTA`.
+- **Spike ingest reject**: trigger se gli ingest rifiutati nella finestra superano `OPS_ALERT_INGEST_REJECTS_DELTA`.
+- **Anti-spam**: cooldown per chiave alert con `NOTIFY_OPS_COOLDOWN_MS`.
+- **Canale**: usa `NOTIFY_WEBHOOK_URL` (stesso endpoint già usato per water/env alerts).
+
 ## Backup e restore
 - Dati storici persistono nel volume Docker `gateway_data` (`/app/data/readings.jsonl`).
 - Backup: snapshot volume giornaliero.
