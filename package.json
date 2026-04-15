@@ -14,7 +14,8 @@
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
     "http-proxy-middleware": "^2.0.9",
-    "start-server-and-test": "^2.1.5"
+    "start-server-and-test": "^2.1.5",
+    "yaml": "^2.8.3"
   },
   "scripts": {
     "start": "react-scripts start",
