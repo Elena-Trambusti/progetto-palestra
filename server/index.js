@@ -13,6 +13,7 @@ const history = require("./lib/history");
 const {
   maybeNotifyWaterLow,
   maybeNotifyWaterRapidDrop,
+  maybeNotifyOpsAlert,
 } = require("./lib/notify");
 const { notifyEnvironmentEdges } = require("./lib/envNotifyEdges");
 const { activeAlarmsForState } = require("./lib/envAlarms");
@@ -51,6 +52,18 @@ const WATER_RAPID_WINDOW_MS =
   Number(process.env.WATER_RAPID_WINDOW_MS) || 10 * 60 * 1000;
 const WATER_RAPID_DROP_PCT =
   Number(process.env.WATER_RAPID_DROP_PCT) || 12;
+const OPS_ALERT_CHECK_EVERY_MS =
+  Number(process.env.OPS_ALERT_CHECK_EVERY_MS) || 60 * 1000;
+const OPS_ALERT_WINDOW_MS =
+  Number(process.env.OPS_ALERT_WINDOW_MS) || 5 * 60 * 1000;
+const OPS_ALERT_5XX_RATE_PCT =
+  Number(process.env.OPS_ALERT_5XX_RATE_PCT) || 1;
+const OPS_ALERT_WS_REJECTS_DELTA =
+  Number(process.env.OPS_ALERT_WS_REJECTS_DELTA) || 5;
+const OPS_ALERT_INGEST_REJECTS_DELTA =
+  Number(process.env.OPS_ALERT_INGEST_REJECTS_DELTA) || 5;
+const OPS_ALERT_MIN_REQUESTS =
+  Number(process.env.OPS_ALERT_MIN_REQUESTS) || 30;
 
 if (REQUIRE_AUTH && !AUTH_PASSWORD) {
   console.error(
@@ -455,6 +468,13 @@ const metrics = {
 
 /** Popolato dopo creazione WebSocketServer */
 let broadcastSnapshots = () => {};
+const opsAlertWindowState = {
+  ts: Date.now(),
+  requestsTotal: 0,
+  requests5xx: 0,
+  wsRejected: 0,
+  ingestRejected: 0,
+};
 
 app.disable("x-powered-by");
 if (TRUST_PROXY) app.set("trust proxy", 1);
@@ -870,12 +890,82 @@ app.use((err, _req, res, next) => {
   return next(err);
 });
 
+function evaluateOpsAlerts() {
+  if (!NOTIFY_WEBHOOK) return;
+
+  const now = Date.now();
+  if (now - opsAlertWindowState.ts < OPS_ALERT_WINDOW_MS) return;
+
+  const deltaRequests = metrics.requestsTotal - opsAlertWindowState.requestsTotal;
+  const delta5xx = metrics.requests5xx - opsAlertWindowState.requests5xx;
+  const deltaWsRejected =
+    metrics.wsConnectionsRejected - opsAlertWindowState.wsRejected;
+  const deltaIngestRejected =
+    metrics.ingestRejected - opsAlertWindowState.ingestRejected;
+
+  const errorRatePct =
+    deltaRequests > 0 ? (delta5xx / Math.max(1, deltaRequests)) * 100 : 0;
+
+  if (
+    deltaRequests >= OPS_ALERT_MIN_REQUESTS &&
+    errorRatePct >= OPS_ALERT_5XX_RATE_PCT
+  ) {
+    maybeNotifyOpsAlert({
+      alertKey: "ops_high_5xx_rate",
+      severity: "critical",
+      message: `5xx rate elevato: ${errorRatePct.toFixed(2)}% nelle ultime ${Math.round(OPS_ALERT_WINDOW_MS / 60000)} min`,
+      details: {
+        requests: deltaRequests,
+        errors5xx: delta5xx,
+        thresholdPct: OPS_ALERT_5XX_RATE_PCT,
+        windowMs: OPS_ALERT_WINDOW_MS,
+      },
+      webhookUrl: NOTIFY_WEBHOOK,
+    });
+  }
+
+  if (deltaWsRejected >= OPS_ALERT_WS_REJECTS_DELTA) {
+    maybeNotifyOpsAlert({
+      alertKey: "ops_ws_rejected_spike",
+      severity: "warning",
+      message: `Spike connessioni WebSocket rifiutate: ${deltaWsRejected} nelle ultime ${Math.round(OPS_ALERT_WINDOW_MS / 60000)} min`,
+      details: {
+        wsRejected: deltaWsRejected,
+        threshold: OPS_ALERT_WS_REJECTS_DELTA,
+        windowMs: OPS_ALERT_WINDOW_MS,
+      },
+      webhookUrl: NOTIFY_WEBHOOK,
+    });
+  }
+
+  if (deltaIngestRejected >= OPS_ALERT_INGEST_REJECTS_DELTA) {
+    maybeNotifyOpsAlert({
+      alertKey: "ops_ingest_rejected_spike",
+      severity: "warning",
+      message: `Spike ingest rifiutati: ${deltaIngestRejected} nelle ultime ${Math.round(OPS_ALERT_WINDOW_MS / 60000)} min`,
+      details: {
+        ingestRejected: deltaIngestRejected,
+        threshold: OPS_ALERT_INGEST_REJECTS_DELTA,
+        windowMs: OPS_ALERT_WINDOW_MS,
+      },
+      webhookUrl: NOTIFY_WEBHOOK,
+    });
+  }
+
+  opsAlertWindowState.ts = now;
+  opsAlertWindowState.requestsTotal = metrics.requestsTotal;
+  opsAlertWindowState.requests5xx = metrics.requests5xx;
+  opsAlertWindowState.wsRejected = metrics.wsConnectionsRejected;
+  opsAlertWindowState.ingestRejected = metrics.ingestRejected;
+}
+
 const ticker = setInterval(() => {
   if (!DISABLE_AUTO_TICK) {
     ZONES.forEach((z) => tickZone(z.id));
   }
   broadcastSnapshots();
 }, 2000);
+const opsAlertTicker = setInterval(evaluateOpsAlerts, OPS_ALERT_CHECK_EVERY_MS);
 
 server.on("error", (err) => {
   if (err && err.code === "EADDRINUSE") {
@@ -930,6 +1020,7 @@ server.listen(PORT, () => {
 function shutdown(signal) {
   logEvent("info", "shutdown_start", { signal });
   clearInterval(ticker);
+  clearInterval(opsAlertTicker);
   wss.clients.forEach((ws) => {
     try {
       ws.close(1001, "server_shutdown");

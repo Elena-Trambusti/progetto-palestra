@@ -100,9 +100,13 @@ function maybeNotifyWaterRapidDrop({
 
 const ENV_COOLDOWN_MS =
   Number(process.env.NOTIFY_ENV_COOLDOWN_MS) || 5 * 60 * 1000;
+const OPS_COOLDOWN_MS =
+  Number(process.env.NOTIFY_OPS_COOLDOWN_MS) || 5 * 60 * 1000;
 
 /** @type {Map<string, number>} */
 const lastEnvSent = new Map();
+/** @type {Map<string, number>} */
+const lastOpsSent = new Map();
 
 /**
  * Webhook per superamento soglia ambientale (fronte di salita/discesa).
@@ -140,8 +144,41 @@ function maybeNotifyEnvThreshold(p) {
   });
 }
 
+/**
+ * Webhook per alert operativi (error rate, reject websocket/ingest, ecc.).
+ * @param {{ alertKey: string, severity?: string, message: string, details?: object, webhookUrl: string }} p
+ */
+function maybeNotifyOpsAlert(p) {
+  const {
+    alertKey,
+    severity = "warning",
+    message,
+    details = {},
+    webhookUrl,
+  } = p;
+  if (!webhookUrl || !alertKey || !message) return;
+
+  const now = Date.now();
+  const last = lastOpsSent.get(alertKey) || 0;
+  if (now - last < OPS_COOLDOWN_MS) return;
+  lastOpsSent.set(alertKey, now);
+
+  postJson(webhookUrl, {
+    type: "ops_alert",
+    alertKey,
+    severity,
+    message,
+    details,
+    ts: new Date().toISOString(),
+  }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[notify] ops_alert webhook failed", err?.message || err);
+  });
+}
+
 module.exports = {
   maybeNotifyWaterLow,
   maybeNotifyWaterRapidDrop,
   maybeNotifyEnvThreshold,
+  maybeNotifyOpsAlert,
 };
