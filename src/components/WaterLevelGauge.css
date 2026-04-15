@@ -1,0 +1,213 @@
+.water-gauge {
+  padding: 1rem 1.1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+}
+
+.water-gauge__head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.water-gauge__icon {
+  width: 26px;
+  height: 26px;
+  color: #22d3ee;
+  filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.45));
+}
+
+.water-gauge__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fafafa;
+}
+
+.water-gauge__hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.72rem;
+  color: #71717a;
+}
+
+.water-gauge__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  position: relative;
+}
+
+.water-gauge--loading .water-gauge__ring-wrap {
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+.water-gauge__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.water-gauge__spinner {
+  width: 28px;
+  height: 28px;
+  color: #22d3ee;
+  animation: gaugeSpin 0.85s linear infinite;
+}
+
+@keyframes gaugeSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.water-gauge__loading-text {
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: #a1a1aa;
+}
+
+.water-gauge__ring-wrap {
+  position: relative;
+  width: min(220px, 70vw);
+  aspect-ratio: 1;
+}
+
+.water-gauge__svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.water-gauge__track {
+  stroke: rgba(63, 63, 70, 0.85);
+  stroke-width: 10;
+}
+
+.water-gauge__value {
+  transition: stroke-dashoffset 0.85s cubic-bezier(0.22, 1, 0.36, 1),
+    stroke 0.55s ease;
+}
+
+.water-gauge__value--low {
+  filter: url(#gaugeGlow);
+  animation: lowPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes lowPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.88;
+  }
+}
+
+.water-gauge__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  pointer-events: none;
+}
+
+.water-gauge__percent {
+  font-size: clamp(1.75rem, 5vw, 2.25rem);
+  font-weight: 700;
+  color: #f4f4f5;
+  text-shadow: 0 0 20px rgba(167, 139, 250, 0.35);
+}
+
+.water-gauge__unit {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  align-self: flex-end;
+  margin-bottom: 0.35rem;
+}
+
+.water-gauge__alert {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: #fca5a5;
+  text-align: center;
+  text-shadow: 0 0 12px rgba(248, 113, 113, 0.45);
+}
+
+.water-gauge__alert--rapid {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.35rem;
+  max-width: 22rem;
+  text-align: left;
+  color: #fcd34d;
+  text-shadow: 0 0 12px rgba(251, 191, 36, 0.35);
+}
+
+.water-gauge__alert-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 0.1rem;
+}
+
+.water-gauge__insights {
+  width: 100%;
+  max-width: 22rem;
+  margin-top: 0.25rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(63, 63, 70, 0.65);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: #d4d4d8;
+}
+
+.water-gauge__insight-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+}
+
+.water-gauge__insight-icon {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  color: #22d3ee;
+  margin-top: 0.08rem;
+  opacity: 0.85;
+}
+
+.water-gauge__insight-label {
+  color: #e4e4e7;
+}
+
+.water-gauge__insight-strong {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.water-gauge__insight-muted {
+  color: #71717a;
+}
+
+.water-gauge__rate {
+  margin: 0.45rem 0 0;
+  padding-left: 1.35rem;
+  font-size: 0.65rem;
+  color: #a1a1aa;
+}

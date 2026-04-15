@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 220" width="400" height="220">
+  <rect width="400" height="220" fill="#0f172a" rx="8"/>
+  <text x="20" y="36" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="14">Piano terra</text>
+  <ellipse cx="200" cy="120" rx="140" ry="70" fill="none" stroke="#475569" stroke-width="1.5"/>
+  <text x="200" y="205" text-anchor="middle" fill="#64748b" font-size="11">Wellness · vasche</text>
+</svg>

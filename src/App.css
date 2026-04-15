@@ -1,0 +1,234 @@
+.app-shell {
+  min-height: 100%;
+  padding: clamp(1rem, 2vw, 1.75rem);
+  background: radial-gradient(
+      ellipse 120% 80% at 50% -20%,
+      rgba(99, 102, 241, 0.12),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 80% 50% at 100% 50%,
+      rgba(168, 85, 247, 0.08),
+      transparent 50%
+    ),
+    #0a0a0a;
+}
+
+.dashboard-grid {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "tabs"
+    "alarms"
+    "zones"
+    "mapbar"
+    "chart"
+    "rightcol"
+    "terminal";
+}
+
+.dashboard-grid--floorplan {
+  grid-template-areas:
+    "header"
+    "tabs"
+    "alarms"
+    "zones"
+    "mapbar"
+    "map"
+    "chart"
+    "rightcol"
+    "terminal";
+}
+
+.area-tabs {
+  grid-area: tabs;
+}
+
+.area-alarms {
+  grid-area: alarms;
+}
+
+.area-mapbar {
+  grid-area: mapbar;
+}
+
+.area-map {
+  grid-area: map;
+}
+
+.floorplan-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 1rem;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  background: rgba(16, 185, 129, 0.1);
+  color: #ecfdf5;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.floorplan-toggle:hover {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(52, 211, 153, 0.65);
+}
+
+.floorplan-toggle__icon {
+  width: 20px;
+  height: 20px;
+  color: #34d399;
+  flex-shrink: 0;
+}
+
+.area-rightcol {
+  grid-area: rightcol;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.area-history {
+  grid-area: history;
+  min-height: 480px;
+}
+
+.dashboard-grid--history {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "tabs"
+    "alarms"
+    "zones"
+    "history";
+}
+
+@media (min-width: 960px) {
+  .dashboard-grid {
+    grid-template-columns: 1.4fr 1fr;
+    grid-template-rows: auto auto auto auto auto minmax(240px, 1fr) auto;
+    grid-template-areas:
+      "header header"
+      "tabs tabs"
+      "alarms alarms"
+      "zones zones"
+      "mapbar mapbar"
+      "chart rightcol"
+      "terminal terminal";
+    align-items: stretch;
+  }
+
+  .dashboard-grid--floorplan {
+    grid-template-rows:
+      auto auto auto auto auto minmax(200px, 0.55fr) minmax(240px, 1fr) auto;
+    grid-template-areas:
+      "header header"
+      "tabs tabs"
+      "alarms alarms"
+      "zones zones"
+      "mapbar mapbar"
+      "map map"
+      "chart rightcol"
+      "terminal terminal";
+  }
+
+  .dashboard-grid--history {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "header"
+      "tabs"
+      "alarms"
+      "zones"
+      "history";
+  }
+
+  .dashboard-grid--history .area-history {
+    min-height: 560px;
+  }
+}
+
+.area-header {
+  grid-area: header;
+}
+
+.area-zones {
+  grid-area: zones;
+}
+
+.area-chart {
+  grid-area: chart;
+}
+
+.area-terminal {
+  grid-area: terminal;
+}
+
+.glass-panel {
+  position: relative;
+  border-radius: 14px;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.12) inset,
+    0 8px 32px rgba(0, 0, 0, 0.45), 0 0 40px rgba(139, 92, 246, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  overflow: hidden;
+}
+
+.glass-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    120deg,
+    rgba(168, 85, 247, 0.15) 0%,
+    transparent 40%,
+    transparent 60%,
+    rgba(59, 130, 246, 0.12) 100%
+  );
+  opacity: 0.85;
+}
+
+.glass-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes enterFade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-in {
+  animation: enterFade 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-in-delay-1 {
+  animation-delay: 0.08s;
+}
+
+.animate-in-delay-2 {
+  animation-delay: 0.16s;
+}
+
+.animate-in-delay-3 {
+  animation-delay: 0.24s;
+}

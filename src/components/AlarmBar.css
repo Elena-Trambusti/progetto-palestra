@@ -1,0 +1,65 @@
+.alarm-bar {
+  padding: 0.75rem 1rem;
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.alarm-bar__title {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fca5a5;
+}
+
+.alarm-bar__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.alarm-bar__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: #e4e4e7;
+}
+
+.alarm-bar__item--critical {
+  color: #fecaca;
+}
+
+.alarm-bar__item--warning {
+  color: #fde68a;
+}
+
+.alarm-bar__ic {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.alarm-bar__ic--crit {
+  color: #f87171;
+}
+
+.alarm-bar__ic--warn {
+  color: #fbbf24;
+}
+
+.alarm-bar__ic--info {
+  color: #38bdf8;
+}
+
+.alarm-bar__msg {
+  flex: 1;
+  min-width: 0;
+}
+
+.alarm-bar__val {
+  font-size: 0.7rem;
+  color: #a1a1aa;
+}

@@ -1,0 +1,142 @@
+.floor-map {
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.floor-map__head {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.floor-map__head-icon {
+  width: 24px;
+  height: 24px;
+  color: #34d399;
+  flex-shrink: 0;
+}
+
+.floor-map__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fafafa;
+}
+
+.floor-map__hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.7rem;
+  color: #71717a;
+}
+
+.floor-map__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.floor-map__tab {
+  border: 1px solid rgba(63, 63, 70, 0.9);
+  background: rgba(0, 0, 0, 0.35);
+  color: #a1a1aa;
+  padding: 0.35rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.floor-map__tab:hover {
+  color: #e4e4e7;
+  border-color: rgba(139, 92, 246, 0.5);
+}
+
+.floor-map__tab--on {
+  color: #f4f4f5;
+  border-color: rgba(34, 211, 238, 0.55);
+  background: rgba(34, 211, 238, 0.08);
+}
+
+.floor-map__frame {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(63, 63, 70, 0.85);
+  background: #020617;
+  min-height: 200px;
+  max-height: 320px;
+}
+
+.floor-map__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: contain;
+  opacity: 0.95;
+}
+
+.floor-map__pins {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.floor-map__pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  text-align: center;
+  max-width: 42%;
+}
+
+.floor-map__pin-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35);
+  transition: transform 0.15s;
+}
+
+.floor-map__pin--warning .floor-map__pin-dot {
+  background: #eab308;
+  box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.35);
+}
+
+.floor-map__pin--critical .floor-map__pin-dot {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.4);
+}
+
+.floor-map__pin--info .floor-map__pin-dot {
+  background: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35);
+}
+
+.floor-map__pin--sel .floor-map__pin-dot {
+  transform: scale(1.25);
+}
+
+.floor-map__pin-label {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.58rem;
+  line-height: 1.15;
+  color: #e4e4e7;
+  text-shadow: 0 1px 4px #000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floor-map__pin:hover .floor-map__pin-dot {
+  transform: scale(1.15);
+}
