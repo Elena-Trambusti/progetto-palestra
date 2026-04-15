@@ -200,8 +200,6 @@ export function resolveWebSocketUrl(zoneId) {
 
   const u = new URL(base);
   if (zoneId) u.searchParams.set("zoneId", zoneId);
-  const tok = getStoredSessionToken();
-  if (tok) u.searchParams.set("token", tok);
   return u.toString();
 }
 
@@ -211,7 +209,5 @@ export function buildWebSocketUrl(wsBase, zoneId) {
   if (!raw) return resolveWebSocketUrl(zoneId);
   const u = new URL(raw);
   if (zoneId) u.searchParams.set("zoneId", zoneId);
-  const tok = getStoredSessionToken();
-  if (tok) u.searchParams.set("token", tok);
   return u.toString();
 }

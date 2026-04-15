@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  gateway:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: palestra-gateway
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      REQUIRE_AUTH: "true"
+      AUTH_PASSWORD: "change-me"
+      INGEST_SECRET: "change-me-ingest"
+      CORS_ORIGIN: "http://localhost:3000"
+    volumes:
+      - gateway_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/readyz"]
+      interval: 15s
+      timeout: 4s
+      retries: 4
+
+volumes:
+  gateway_data:

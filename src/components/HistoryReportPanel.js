@@ -27,6 +27,12 @@ ChartJS.register(
 );
 
 function buildCsv(samples, zoneId) {
+  const csvCell = (value) => {
+    if (value === null || value === undefined) return "";
+    const s = String(value);
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, "\"\"")}"`;
+    return s;
+  };
   const header = "iso_utc,zone,temp_c,water_pct,humidity_pct,co2_ppm,voc_index\n";
   const body = (samples || [])
     .map((r) =>
@@ -38,7 +44,9 @@ function buildCsv(samples, zoneId) {
         r.humidity ?? "",
         r.co2 ?? "",
         r.voc ?? "",
-      ].join(",")
+      ]
+        .map(csvCell)
+        .join(",")
     )
     .join("\n");
   return header + body;
@@ -225,8 +233,8 @@ export default function HistoryReportPanel({
               </tr>
             </thead>
             <tbody>
-              {samples.slice(-6).map((r) => (
-                <tr key={r.iso}>
+              {samples.slice(-6).map((r, idx) => (
+                <tr key={`${r.iso || "row"}-${idx}`}>
                   <td>{String(r.iso).slice(11, 22)}</td>
                   <td>{r.temp != null ? Number(r.temp).toFixed(1) : "—"}</td>
                   <td>{r.humidity != null ? Math.round(r.humidity) : "—"}</td>
