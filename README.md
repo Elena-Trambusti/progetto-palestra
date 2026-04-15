@@ -1,83 +1,156 @@
-# Dashboard monitoraggio palestra
+# Palestra Dashboard
 
-Interfaccia React (tema cyberpunk) + backend Node di esempio con zone, storico su file, autenticazione opzionale e WebSocket.
+Monitoraggio smart per ambienti palestra: frontend React con dashboard real-time e backend Node.js con API REST, storico su file e WebSocket.
 
-## Requisiti
+![License](https://img.shields.io/badge/license-Private-6b7280?style=for-the-badge)
+![React](https://img.shields.io/badge/react-18-61dafb?style=for-the-badge&logo=react&logoColor=111827)
+![Node](https://img.shields.io/badge/node.js-18%2B-3c873a?style=for-the-badge&logo=node.js&logoColor=white)
+![Status](https://img.shields.io/badge/status-prototype-f59e0b?style=for-the-badge)
+
+---
+
+## Panoramica
+
+Questa applicazione nasce per supervisione tecnica e operativa di una palestra, con focus su:
+
+- temperatura e stato acqua per zona,
+- qualità aria (CO2, VOC, umidita),
+- storico consultabile ed esportabile,
+- integrazione ingest da dispositivi (Arduino / ESP / simulatori).
+
+### Anteprima layout
+
+![Mappa piano palestra](public/plans/piano-1.svg)
+
+---
+
+## Funzionalita principali
+
+- Dashboard React con UI moderna e aggiornamenti live.
+- Gateway Node.js/Express con endpoint REST e stream WebSocket.
+- Persistenza storico su file per analisi e report.
+- Modalita auth opzionale per ambienti protetti.
+- Endpoint ingest dedicato per dati da sensori esterni.
+
+---
+
+## Stack Tecnologico
+
+### Frontend
+
+- React 18
+- Chart.js + react-chartjs-2
+- lucide-react
+
+### Backend
+
+- Node.js + Express
+- WebSocket (`ws`)
+- Helmet, CORS, dotenv
+
+---
+
+## Quick Start
+
+### Prerequisiti
 
 - [Node.js](https://nodejs.org/) LTS (consigliato 18+)
-- npm (incluso con Node)
+- npm
 
-## Avvio rapido (solo interfaccia, dati simulati)
+### 1) Installazione dipendenze
 
 ```bash
 npm install
+npm --prefix server install
+```
+
+### 2) Avvio stack completo (consigliato)
+
+```bash
+npm run stack
+```
+
+Avvia:
+
+- frontend su `http://localhost:3000`
+- backend su `http://localhost:4000`
+
+### 3) Avvio frontend standalone (mock/simulato)
+
+```bash
 npm start
 ```
 
-Apri il browser su **http://localhost:3000**. Non serve il server sulla porta 4000.
-
-## Avvio con backend (consigliato per provare API reali)
-
-1. Installa le dipendenze del server (prima volta):
-
-   ```bash
-   cd server
-   npm install
-   cd ..
-   ```
-
-2. Dalla **radice** del progetto:
-
-   ```bash
-   npm run stack
-   ```
-
-   Partono insieme il gateway (porta **4000**) e, quando è pronto, il frontend (porta **3000**), con proxy già configurato. Apri sempre **http://localhost:3000** per la dashboard: la porta 4000 è solo API/WebSocket.
-
-3. Apri **http://localhost:3000**.
-
-## Solo il server API
+### 4) Avvio solo backend
 
 ```bash
 npm run server
 ```
 
-Le API sono su **http://localhost:4000** (nessuna pagina React su questa porta).
+---
 
-## Variabili d’ambiente
+## Configurazione Ambiente
 
-- Esempi per il frontend: **`.env.example`** (copia in `.env` se serve).
-- Esempi per il server: **`server/.env.example`** (copia in `server/.env`).
+- Frontend: copia `.env.example` in `.env` (se necessario).
+- Backend: copia `server/.env.example` in `server/.env`.
 
-Note:
+Note utili:
 
-- Con `REQUIRE_AUTH=true` sul server è **obbligatorio** impostare `AUTH_PASSWORD` (non lasciare vuoto).
-- In production `AUTH_PASSWORD` deve rispettare la lunghezza minima (`AUTH_MIN_PASSWORD_LEN`, default 12).
-- `CORS_ORIGIN` accetta una lista separata da virgole; origini non in lista ricevono `403 cors_origin_denied`.
-- `npm run stack` imposta `REACT_APP_GATEWAY_MODE=proxy` per instradare `/api` e `/ws` verso il backend.
+- se `REQUIRE_AUTH=true`, `AUTH_PASSWORD` e obbligatoria;
+- `CORS_ORIGIN` supporta lista separata da virgole;
+- con `npm run stack` il frontend usa il gateway in modalita proxy.
 
-## Build di produzione
+---
+
+## API Rapide
+
+### Ingest sensori
+
+`POST /api/ingest/reading`
+
+Esempio payload:
+
+```json
+{
+  "zoneId": "docce-p1",
+  "temperatureC": 30.5,
+  "waterPercent": 68,
+  "humidityPercent": 55,
+  "co2Ppm": 720,
+  "vocIndex": 120,
+  "source": "arduino"
+}
+```
+
+### Storico
+
+- `GET /api/history?zoneId=...&limit=200&from=&to=`
+- `GET /api/report/csv?zoneId=...`
+
+---
+
+## Qualita e Build
 
 ```bash
+npm run lint
+npm run test:all
 npm run build
 ```
 
-Output in `build/`. Servi i file statici con un web server e metti dietro un reverse proxy HTTPS verso il processo Node se usi il gateway in produzione.
+Build frontend generata in `build/`.
 
-## Ingest da dispositivo (Arduino / ESP / test)
+---
 
-Il server espone `POST /api/ingest/reading` con JSON ad esempio:
+## Roadmap Prototype
 
-`{"zoneId":"docce-p1","temperatureC":30.5,"waterPercent":68,"humidityPercent":55,"co2Ppm":720,"vocIndex":120,"source":"arduino"}`
+- hardening sicurezza e gestione segreti,
+- storage storico su database (oltre file system),
+- alerting automatico su soglie critiche,
+- dashboard ruoli/permessi multi-utente.
 
-Opzionale: `waterPercent`, `humidityPercent` (o `humidityPct` / `rh`), `co2Ppm` (o `co2`), `vocIndex` (o `voc` / `iaq`). In produzione usa `INGEST_SECRET` (header `x-ingest-secret`) o `API_KEY`.
+---
 
-Storico multi-grandezza: `GET /api/history?zoneId=...&limit=200&from=&to=` restituisce anche `samples`. Export: `GET /api/report/csv?zoneId=...`.
+## Contatti
 
-Dettagli e checklist: **`docs/PROSSIMI_PASSI.md`**.
-
-## Documentazione operativa estesa
-
-Vedi **`docs/PIANO_PALESTRA_LIVORNO.md`** (requisiti, sopralluogo, sicurezza, roadmap).
-
-Per operazioni day-2 (monitoraggio, incident response, backup/restore, rollback) usa **`docs/RUNBOOK_OPERATIVO.md`**.
+Progetto sviluppato da **Elena Trambusti**.  
+Per evoluzioni del prototipo, apri una issue o una pull request.
