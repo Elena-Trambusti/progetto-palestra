@@ -43,6 +43,7 @@ const DISABLE_AUTO_TICK =
 const NODE_ENV = String(process.env.NODE_ENV || "development").toLowerCase();
 const IS_PROD = NODE_ENV === "production";
 const TRUST_PROXY = String(process.env.TRUST_PROXY || "").toLowerCase() === "true";
+const AUTH_MIN_PASSWORD_LEN = Number(process.env.AUTH_MIN_PASSWORD_LEN) || 12;
 
 const WATER_ETA_LOOKBACK_MS =
   Number(process.env.WATER_ETA_LOOKBACK_MS) || 45 * 60 * 1000;
@@ -69,6 +70,12 @@ if (IS_PROD) {
   }
   if (CORS_ORIGIN === "*") {
     console.error("[config] In production CORS_ORIGIN='*' non è consentito.");
+    process.exit(1);
+  }
+  if (AUTH_PASSWORD.length < AUTH_MIN_PASSWORD_LEN) {
+    console.error(
+      `[config] AUTH_PASSWORD troppo corta: minimo ${AUTH_MIN_PASSWORD_LEN} caratteri in production.`
+    );
     process.exit(1);
   }
 }
@@ -444,10 +451,32 @@ app.disable("x-powered-by");
 if (TRUST_PROXY) app.set("trust proxy", 1);
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cookieParser());
+
+const ALLOWED_ORIGINS =
+  CORS_ORIGIN === "*"
+    ? []
+    : CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean);
+
+function corsOriginDelegate(origin, cb) {
+  if (CORS_ORIGIN === "*") {
+    // Dev fallback only. In production '*' is already blocked at startup.
+    cb(null, true);
+    return;
+  }
+  if (!origin) {
+    cb(null, true);
+    return;
+  }
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    cb(null, true);
+    return;
+  }
+  cb(new Error("cors_origin_denied"));
+}
+
 app.use(
   cors({
-    origin:
-      CORS_ORIGIN === "*" ? true : CORS_ORIGIN.split(",").map((s) => s.trim()),
+    origin: corsOriginDelegate,
     credentials: true,
   })
 );
@@ -472,7 +501,7 @@ app.use((req, res, next) => {
   next();
 });
 
-function makeRateLimit({ windowMs, max, keyPrefix }) {
+function makeRateLimit({ windowMs, max, keyPrefix, maxKeys = 10_000 }) {
   /** @type {Map<string, number[]>} */
   const hits = new Map();
   return (req, res, next) => {
@@ -482,6 +511,12 @@ function makeRateLimit({ windowMs, max, keyPrefix }) {
     const arr = (hits.get(key) || []).filter((ts) => now - ts < windowMs);
     arr.push(now);
     hits.set(key, arr);
+    if (hits.size > maxKeys) {
+      for (const [k, vals] of hits) {
+        const recent = vals.filter((ts) => now - ts < windowMs);
+        if (!recent.length) hits.delete(k);
+      }
+    }
     if (arr.length > max) {
       return res.status(429).json({ error: "rate_limited", retryAfterMs: windowMs });
     }
@@ -503,6 +538,11 @@ const limitReport = makeRateLimit({
   windowMs: 60_000,
   max: 30,
   keyPrefix: "report",
+});
+const limitApiRead = makeRateLimit({
+  windowMs: 60_000,
+  max: 180,
+  keyPrefix: "api-read",
 });
 
 function validateIsoRange(fromIso, toIso) {
@@ -570,7 +610,7 @@ app.get("/metrics", (_req, res) => {
   );
 });
 
-app.get("/api/zones", (_req, res) => {
+app.get("/api/zones", limitApiRead, (_req, res) => {
   res.json({
     zones: ZONES.map((x) => ({
       id: x.id,
@@ -588,13 +628,13 @@ app.get("/api/zones", (_req, res) => {
   });
 });
 
-app.get("/api/dashboard/snapshot", (req, res) => {
+app.get("/api/dashboard/snapshot", limitApiRead, (req, res) => {
   const q = String(req.query.zoneId || "").trim();
   const zoneId = ZONES.some((z) => z.id === q) ? q : ZONES[0].id;
   res.json(buildSnapshotPayload(zoneId));
 });
 
-app.get("/api/history", (req, res) => {
+app.get("/api/history", limitApiRead, (req, res) => {
   const q = String(req.query.zoneId || "").trim();
   const zoneId = ZONES.some((z) => z.id === q) ? q : ZONES[0].id;
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
@@ -781,6 +821,13 @@ app.post("/api/ingest/reading", limitIngest, ingestAuth, (req, res) => {
   });
   broadcastSnapshots();
   return res.json({ ok: true, zoneId });
+});
+
+app.use((err, _req, res, next) => {
+  if (err && err.message === "cors_origin_denied") {
+    return res.status(403).json({ error: "cors_origin_denied" });
+  }
+  return next(err);
 });
 
 const ticker = setInterval(() => {
