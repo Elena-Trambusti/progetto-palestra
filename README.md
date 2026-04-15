@@ -52,6 +52,8 @@ Le API sono su **http://localhost:4000** (nessuna pagina React su questa porta).
 Note:
 
 - Con `REQUIRE_AUTH=true` sul server è **obbligatorio** impostare `AUTH_PASSWORD` (non lasciare vuoto).
+- In production `AUTH_PASSWORD` deve rispettare la lunghezza minima (`AUTH_MIN_PASSWORD_LEN`, default 12).
+- `CORS_ORIGIN` accetta una lista separata da virgole; origini non in lista ricevono `403 cors_origin_denied`.
 - `npm run stack` imposta `REACT_APP_GATEWAY_MODE=proxy` per instradare `/api` e `/ws` verso il backend.
 
 ## Build di produzione
