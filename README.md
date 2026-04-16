@@ -86,6 +86,14 @@ Avvia:
 - frontend su `http://localhost:3000`
 - backend/gateway su `http://localhost:4000`
 
+### 2-bis) Demo preset (frontend + simulatore LoRa)
+
+```bash
+npm run demo
+```
+
+Avvia frontend e simulatore gateway LoRa in parallelo, utile per demo senza hardware.
+
 ### 3) Avvio frontend standalone (mock/simulato)
 
 ```bash
@@ -156,9 +164,29 @@ Compatibilita mantenuta anche con il payload legacy basato su `zoneId` + `temper
 ### Storico
 
 - `GET /api/history?zoneId=...&limit=200&from=&to=`
+- `GET /api/history?nodeId=...&limit=200&from=&to=`
 - `GET /api/report/csv?zoneId=...`
+- `GET /api/report/csv?nodeId=...`
 - `GET /api/network/catalog`
 - `GET /api/network/status`
+- `GET /api/network/events?limit=120`
+
+## Osservabilità e timeline eventi
+
+- Eventi rete persistenti su file: `server/data/network-events.jsonl`
+- Timeline eventi visualizzata nella tab **Rete LoRa**
+- Eventi principali:
+  - transizioni stato nodo (`online/stale/offline`)
+  - anomalia segnale
+  - eventi operativi di rete
+
+## Soglie allarmi
+
+- Soglie globali: `ALARM_*`
+- Soglie per tipo nodo/zona: `ALARM_WATER__*`, `ALARM_FLOW__*`, `ALARM_AIR__*`, `ALARM_LIGHT__*`, ...
+- Soglie per singolo nodo:
+  - formato: `ALARM_NODE__<NODE_ID_NORMALIZZATO>__<THRESHOLD_KEY>`
+  - esempio: `ALARM_NODE__NODE_AIR_01__CO2_HIGH_PPM=900`
 
 ---
 

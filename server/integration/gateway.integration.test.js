@@ -105,6 +105,28 @@ test("health and ingest auth flow with ingest secret", async () => {
     const ingestBody = await okIngest.json();
     assert.equal(ingestBody.ok, true);
     assert.equal(ingestBody.nodeId, "node-water-01");
+
+    const nodeHistory = await fetch(
+      `${baseUrl}/api/history?nodeId=node-water-01&limit=20`
+    );
+    assert.equal(nodeHistory.status, 200);
+    const nodeHistoryBody = await nodeHistory.json();
+    assert.equal(nodeHistoryBody.nodeId, "node-water-01");
+    assert.ok(Array.isArray(nodeHistoryBody.samples));
+    assert.ok(nodeHistoryBody.samples.length >= 1);
+
+    const events = await fetch(`${baseUrl}/api/network/events?limit=10`);
+    assert.equal(events.status, 200);
+    const eventsBody = await events.json();
+    assert.ok(Array.isArray(eventsBody.events));
+
+    const nodeCsv = await fetch(
+      `${baseUrl}/api/report/csv?nodeId=node-water-01&limit=20`
+    );
+    assert.equal(nodeCsv.status, 200);
+    const csv = await nodeCsv.text();
+    assert.ok(csv.includes("iso_utc,target,temp_c"));
+    assert.ok(csv.includes("node-water-01"));
   } finally {
     await stop();
   }

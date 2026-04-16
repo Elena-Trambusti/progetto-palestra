@@ -2,6 +2,10 @@ const fs = require("fs");
 const path = require("path");
 
 const MAX_CACHE_ROWS_PER_ZONE = 25000;
+const MAX_HISTORY_FILE_BYTES =
+  Number(process.env.HISTORY_MAX_FILE_BYTES) || 5 * 1024 * 1024;
+const HISTORY_ROTATE_KEEP_LINES =
+  Number(process.env.HISTORY_ROTATE_KEEP_LINES) || 25000;
 /** @type {Map<string, { loaded: boolean, byZone: Map<string, any[]>, byNode: Map<string, any[]> }>} */
 const caches = new Map();
 
@@ -11,6 +15,18 @@ function ensureDir(dir) {
 
 function readingsPath(dataDir) {
   return path.join(dataDir, "readings.jsonl");
+}
+
+function rotateFileIfNeeded(file, maxBytes, keepLines) {
+  try {
+    const st = fs.statSync(file);
+    if (st.size <= maxBytes) return;
+    const raw = fs.readFileSync(file, "utf8");
+    const lines = raw.split("\n").filter(Boolean).slice(-keepLines);
+    fs.writeFileSync(file, `${lines.join("\n")}\n`, "utf8");
+  } catch {
+    /* ignore rotation failures */
+  }
 }
 
 function parseRow(line) {
@@ -125,7 +141,13 @@ function appendReading(
     if (err) {
       // eslint-disable-next-line no-console
       console.error("[history] append failed", err.message || err);
+      return;
     }
+    rotateFileIfNeeded(
+      readingsPath(dataDir),
+      MAX_HISTORY_FILE_BYTES,
+      HISTORY_ROTATE_KEEP_LINES
+    );
   });
 }
 

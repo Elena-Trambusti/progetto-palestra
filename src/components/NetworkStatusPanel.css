@@ -112,7 +112,7 @@
 
 @media (min-width: 860px) {
   .network-panel__controls {
-    grid-template-columns: 1.4fr 0.7fr 0.9fr;
+    grid-template-columns: 1.4fr 0.7fr 0.9fr auto;
     align-items: center;
   }
 }
@@ -153,6 +153,15 @@
   gap: 0.55rem;
 }
 
+.network-panel__reset {
+  padding: 0.55rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.52);
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
 .network-panel__timeline {
   margin-top: 1rem;
   padding-top: 0.9rem;
@@ -175,7 +184,7 @@
 
 .network-panel__evt {
   display: grid;
-  grid-template-columns: 90px 1fr;
+  grid-template-columns: 90px 78px 1fr;
   gap: 0.7rem;
   padding: 0.45rem 0.55rem;
   border-radius: 10px;
@@ -201,6 +210,33 @@
   color: rgba(148, 163, 184, 0.92);
 }
 
+.network-panel__evt-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 0.08rem 0.45rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.network-panel__evt-badge--critical {
+  border-color: rgba(248, 113, 113, 0.28);
+  color: #fecaca;
+}
+
+.network-panel__evt-badge--warning {
+  border-color: rgba(250, 204, 21, 0.28);
+  color: #fde68a;
+}
+
+.network-panel__evt-badge--info {
+  border-color: rgba(96, 165, 250, 0.22);
+  color: #bfdbfe;
+}
+
 .network-panel__node {
   padding: 0.8rem 0.9rem;
   border-radius: 12px;
@@ -218,6 +254,10 @@
 
 .network-panel__node--offline {
   border-color: rgba(248, 113, 113, 0.25);
+}
+
+.network-panel__node--selected {
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.65) inset;
 }
 
 .network-panel__node-head {

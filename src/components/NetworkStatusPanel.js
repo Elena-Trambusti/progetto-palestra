@@ -43,6 +43,12 @@ export default function NetworkStatusPanel({
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortMode, setSortMode] = useState("criticality");
 
+  const resetControls = () => {
+    setQuery("");
+    setStatusFilter("all");
+    setSortMode("criticality");
+  };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = Array.isArray(networkNodes) ? networkNodes : [];
@@ -159,6 +165,13 @@ export default function NetworkStatusPanel({
             <option value="name">Nome</option>
           </select>
         </label>
+        <button
+          type="button"
+          className="network-panel__reset mono"
+          onClick={resetControls}
+        >
+          Reset filtri
+        </button>
       </div>
 
       <div className="network-panel__focus mono">
@@ -184,7 +197,9 @@ export default function NetworkStatusPanel({
         {filtered.map((node) => (
           <article
             key={node.id}
-            className={`network-panel__node network-panel__node--${node.status || "unknown"}`}
+            className={`network-panel__node network-panel__node--${node.status || "unknown"}${
+              telemetry?.nodeId === node.id ? " network-panel__node--selected" : ""
+            }`}
           >
             <div className="network-panel__node-head">
               <strong className="network-panel__node-title">{node.label || node.id}</strong>
@@ -214,6 +229,9 @@ export default function NetworkStatusPanel({
             .map((e, idx) => (
               <li key={`${e.t || e.iso || idx}`} className={`network-panel__evt network-panel__evt--${e.severity || "info"}`}>
                 <span className="network-panel__evt-time">{fmtWhen(e.iso)}</span>
+                <span className={`network-panel__evt-badge network-panel__evt-badge--${e.severity || "info"}`}>
+                  {String(e.severity || "info").toUpperCase()}
+                </span>
                 <span className="network-panel__evt-msg">{e.message || "—"}</span>
               </li>
             ))}
