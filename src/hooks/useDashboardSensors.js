@@ -11,6 +11,7 @@ import {
   MOCK_ZONES,
 } from "../services/mockSensors";
 import {
+  toUserErrorMessage,
   fetchDashboardSnapshot,
   fetchZonesCatalog,
   getSensorApiRoot,
@@ -232,7 +233,7 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
           setZonesError(null);
         } else {
           setZones(MOCK_ZONES);
-          setZonesError(e instanceof Error ? e.message : String(e));
+          setZonesError(toUserErrorMessage(e));
           setApiErrorHint(null);
         }
       } finally {
@@ -524,7 +525,7 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
         setAwaitingSnapshot(false);
         return;
       }
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = toUserErrorMessage(e);
       setApiErrorHint(msg);
       pushLine(`[WARN] ${new Date().toLocaleTimeString("it-IT")} · API: ${msg}`);
       setConnection("degraded");

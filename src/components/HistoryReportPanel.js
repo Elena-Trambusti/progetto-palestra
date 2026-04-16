@@ -12,7 +12,11 @@ import {
 } from "chart.js";
 import { Line } from "react-chartjs-2";
 import { FileDown, Loader2, RefreshCw } from "lucide-react";
-import { fetchHistorySamples, reportCsvUrl } from "../services/sensorApi";
+import {
+  fetchHistorySamples,
+  reportCsvUrl,
+  toUserErrorMessage,
+} from "../services/sensorApi";
 import "./HistoryReportPanel.css";
 
 ChartJS.register(
@@ -77,7 +81,7 @@ export default function HistoryReportPanel({
       const rows = await fetchHistorySamples(zoneId, 400, from, to);
       setFetched(rows);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(toUserErrorMessage(e));
     } finally {
       setLoading(false);
     }

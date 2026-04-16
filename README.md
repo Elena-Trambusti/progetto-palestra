@@ -94,6 +94,14 @@ npm run demo
 
 Avvia frontend e simulatore gateway LoRa in parallelo, utile per demo senza hardware.
 
+### 2-ter) Demo pulita e ripetibile (reset + avvio)
+
+```bash
+npm run demo:clean
+```
+
+Resetta i file JSONL demo (`readings` + `network-events`) e avvia lo stack demo.
+
 ### 3) Avvio frontend standalone (mock/simulato)
 
 ```bash
@@ -118,6 +126,7 @@ Note utili:
 - se `REQUIRE_AUTH=true`, `AUTH_PASSWORD` e obbligatoria;
 - `CORS_ORIGIN` supporta lista separata da virgole;
 - con `npm run stack` il frontend usa il gateway in modalita proxy.
+- puoi usare preset demo rapidi con `.env.demo` (root e `server/.env.demo`).
 
 ---
 
@@ -170,6 +179,9 @@ Compatibilita mantenuta anche con il payload legacy basato su `zoneId` + `temper
 - `GET /api/network/catalog`
 - `GET /api/network/status`
 - `GET /api/network/events?limit=120`
+- `GET /api/ops/summary`
+
+Contratto API sintetico: `docs/API_CONTRACT.md`
 
 ## Osservabilità e timeline eventi
 

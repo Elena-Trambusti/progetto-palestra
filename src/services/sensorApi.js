@@ -63,6 +63,40 @@ export class LoginRequiredError extends Error {
   }
 }
 
+export class ApiHttpError extends Error {
+  constructor(status, code, hint = "") {
+    super(code || `HTTP ${status}`);
+    this.name = "ApiHttpError";
+    this.status = status;
+    this.code = code || `HTTP_${status}`;
+    this.hint = hint || "";
+  }
+}
+
+export function toUserErrorMessage(err) {
+  const code = String(err?.code || err?.message || "").toLowerCase();
+  if (code === "invalid_node_id") {
+    return "Nodo non valido: seleziona un nodo esistente dal catalogo.";
+  }
+  if (code === "invalid_zone_id") {
+    return "Zona non valida: seleziona una zona esistente dal catalogo.";
+  }
+  if (code === "invalid_time_range") {
+    return "Intervallo temporale non valido: controlla formato ISO e ordine Da/A.";
+  }
+  if (code === "rate_limited" || Number(err?.status) === 429) {
+    return "Troppe richieste ravvicinate: attendi qualche secondo e riprova.";
+  }
+  if (code.includes("failed to fetch") || code.includes("networkerror")) {
+    return "Gateway non raggiungibile: verifica che backend e rete siano attivi.";
+  }
+  if (code === "gateway_timeout") {
+    return "Timeout gateway: la richiesta ha impiegato troppo tempo.";
+  }
+  if (typeof err?.message === "string" && err.message.trim()) return err.message;
+  return "Errore API non previsto.";
+}
+
 async function handleJsonResponse(res) {
   if (res.ok) return res.json();
   const body = await parseJsonError(res);
@@ -70,17 +104,34 @@ async function handleJsonResponse(res) {
     throw new LoginRequiredError();
   }
   const msg = body.error || body.hint || `HTTP ${res.status}`;
-  throw new Error(typeof msg === "string" ? msg : `HTTP ${res.status}`);
+  throw new ApiHttpError(
+    res.status,
+    typeof body.error === "string" ? body.error : `HTTP_${res.status}`,
+    typeof body.hint === "string" ? body.hint : typeof msg === "string" ? msg : ""
+  );
 }
 
 export async function sensorFetch(path, options = {}) {
   const url = apiUrl(path);
   const headers = { ...buildApiHeaders(), ...options.headers };
-  return fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
+  const timeoutMs = Number(process.env.REACT_APP_API_TIMEOUT_MS) || 10_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      credentials: "include",
+      headers,
+      signal: options.signal || controller.signal,
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new ApiHttpError(408, "gateway_timeout");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function loginToGateway(password) {

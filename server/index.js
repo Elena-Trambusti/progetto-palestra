@@ -1029,6 +1029,59 @@ app.get("/metrics", (_req, res) => {
   );
 });
 
+function resolveZoneQuery(qZone) {
+  const zoneId = String(qZone || "").trim();
+  if (!zoneId) return { ok: true, zoneId: ZONES[0].id };
+  if (!ZONES.some((z) => z.id === zoneId)) {
+    return { ok: false, error: "invalid_zone_id" };
+  }
+  return { ok: true, zoneId };
+}
+
+function resolveNodeQuery(qNode) {
+  const nodeId = String(qNode || "").trim();
+  if (!nodeId) return { ok: true, nodeId: "" };
+  if (!NODES.some((n) => n.id === nodeId)) {
+    return { ok: false, error: "invalid_node_id" };
+  }
+  return { ok: true, nodeId };
+}
+
+app.get("/api/ops/summary", limitApiRead, (_req, res) => {
+  const wsClients = wss.clients.size;
+  const avgReqMs =
+    metrics.requestsTotal > 0
+      ? metrics.requestDurationMsTotal / metrics.requestsTotal
+      : 0;
+  const network = networkStatusSummary();
+  res.json({
+    ts: new Date().toISOString(),
+    requests: {
+      total: metrics.requestsTotal,
+      byStatus: {
+        s2xx: metrics.requests2xx,
+        s3xx: metrics.requests3xx,
+        s4xx: metrics.requests4xx,
+        s5xx: metrics.requests5xx,
+      },
+      latencyMs: {
+        avg: Number(avgReqMs.toFixed(2)),
+        max: metrics.requestDurationMsMax,
+      },
+    },
+    websocket: {
+      clients: wsClients,
+      acceptedTotal: metrics.wsConnectionsAccepted,
+      rejectedTotal: metrics.wsConnectionsRejected,
+    },
+    ingest: {
+      acceptedTotal: metrics.ingestAccepted,
+      rejectedTotal: metrics.ingestRejected,
+    },
+    nodes: network.totals,
+  });
+});
+
 app.get("/api/zones", limitApiRead, (_req, res) => {
   res.json({
     zones: ZONES.map((x) => ({
@@ -1070,16 +1123,19 @@ app.get("/api/network/events", limitApiRead, (req, res) => {
 });
 
 app.get("/api/dashboard/snapshot", limitApiRead, (req, res) => {
-  const q = String(req.query.zoneId || "").trim();
-  const zoneId = ZONES.some((z) => z.id === q) ? q : ZONES[0].id;
+  const zone = resolveZoneQuery(req.query.zoneId);
+  if (!zone.ok) return res.status(400).json({ error: zone.error });
+  const { zoneId } = zone;
   res.json(buildSnapshotPayload(zoneId));
 });
 
 app.get("/api/history", limitApiRead, (req, res) => {
-  const qZone = String(req.query.zoneId || "").trim();
-  const qNode = String(req.query.nodeId || "").trim();
-  const zoneId = ZONES.some((z) => z.id === qZone) ? qZone : ZONES[0].id;
-  const nodeId = NODES.some((n) => n.id === qNode) ? qNode : "";
+  const zone = resolveZoneQuery(req.query.zoneId);
+  if (!zone.ok) return res.status(400).json({ error: zone.error });
+  const node = resolveNodeQuery(req.query.nodeId);
+  if (!node.ok) return res.status(400).json({ error: node.error });
+  const { zoneId } = zone;
+  const { nodeId } = node;
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
   const points = nodeId
     ? history.readNodeSeries(DATA_DIR, nodeId, limit)
@@ -1098,10 +1154,12 @@ app.get("/api/history", limitApiRead, (req, res) => {
 });
 
 app.get("/api/report/csv", limitReport, (req, res) => {
-  const qZone = String(req.query.zoneId || "").trim();
-  const qNode = String(req.query.nodeId || "").trim();
-  const zoneId = ZONES.some((z) => z.id === qZone) ? qZone : ZONES[0].id;
-  const nodeId = NODES.some((n) => n.id === qNode) ? qNode : "";
+  const zone = resolveZoneQuery(req.query.zoneId);
+  if (!zone.ok) return res.status(400).json({ error: zone.error });
+  const node = resolveNodeQuery(req.query.nodeId);
+  if (!node.ok) return res.status(400).json({ error: node.error });
+  const { zoneId } = zone;
+  const { nodeId } = node;
   const cap = Math.min(15000, Math.max(50, Number(req.query.limit) || 4000));
   const fromIso = String(req.query.from || "").trim();
   const toIso = String(req.query.to || "").trim();
@@ -1349,6 +1407,7 @@ server.listen(PORT, () => {
   console.log(`  REST  GET /api/dashboard/snapshot?zoneId=...`);
   console.log(`  REST  GET /api/history?zoneId=...&limit=200&from=&to=`);
   console.log(`  REST  GET /api/report/csv?zoneId=...&limit=4000&from=&to=`);
+  console.log(`  REST  GET /api/ops/summary`);
   console.log(`  REST  GET /health · /readyz · /metrics`);
   console.log(`  WS    ws://localhost:${PORT}/ws?zoneId=...`);
   if (API_KEY) {

@@ -127,6 +127,61 @@ test("health and ingest auth flow with ingest secret", async () => {
     const csv = await nodeCsv.text();
     assert.ok(csv.includes("iso_utc,target,temp_c"));
     assert.ok(csv.includes("node-water-01"));
+
+    const invalidNodeHistory = await fetch(
+      `${baseUrl}/api/history?nodeId=node-not-existing&limit=20`
+    );
+    assert.equal(invalidNodeHistory.status, 400);
+    const invalidNodeHistoryBody = await invalidNodeHistory.json();
+    assert.equal(invalidNodeHistoryBody.error, "invalid_node_id");
+
+    const invalidNodeCsv = await fetch(
+      `${baseUrl}/api/report/csv?nodeId=node-not-existing&limit=20`
+    );
+    assert.equal(invalidNodeCsv.status, 400);
+    const invalidNodeCsvBody = await invalidNodeCsv.json();
+    assert.equal(invalidNodeCsvBody.error, "invalid_node_id");
+
+    const invalidZoneSnapshot = await fetch(
+      `${baseUrl}/api/dashboard/snapshot?zoneId=zone-not-existing`
+    );
+    assert.equal(invalidZoneSnapshot.status, 400);
+    const invalidZoneSnapshotBody = await invalidZoneSnapshot.json();
+    assert.equal(invalidZoneSnapshotBody.error, "invalid_zone_id");
+
+    const invalidZoneHistory = await fetch(
+      `${baseUrl}/api/history?zoneId=zone-not-existing&limit=20`
+    );
+    assert.equal(invalidZoneHistory.status, 400);
+    const invalidZoneHistoryBody = await invalidZoneHistory.json();
+    assert.equal(invalidZoneHistoryBody.error, "invalid_zone_id");
+
+    const invalidZoneCsv = await fetch(
+      `${baseUrl}/api/report/csv?zoneId=zone-not-existing&limit=20`
+    );
+    assert.equal(invalidZoneCsv.status, 400);
+    const invalidZoneCsvBody = await invalidZoneCsv.json();
+    assert.equal(invalidZoneCsvBody.error, "invalid_zone_id");
+
+    const invalidTimeRange = await fetch(
+      `${baseUrl}/api/history?zoneId=serbatoio-idrico&from=2026-01-02T00:00:00.000Z&to=2026-01-01T00:00:00.000Z`
+    );
+    assert.equal(invalidTimeRange.status, 400);
+    const invalidTimeRangeBody = await invalidTimeRange.json();
+    assert.equal(invalidTimeRangeBody.error, "invalid_time_range");
+
+    const clampedLimit = await fetch(
+      `${baseUrl}/api/history?zoneId=serbatoio-idrico&limit=99999`
+    );
+    assert.equal(clampedLimit.status, 200);
+    const clampedLimitBody = await clampedLimit.json();
+    assert.equal(clampedLimitBody.limit, 500);
+
+    const opsSummary = await fetch(`${baseUrl}/api/ops/summary`);
+    assert.equal(opsSummary.status, 200);
+    const opsSummaryBody = await opsSummary.json();
+    assert.equal(typeof opsSummaryBody.requests?.total, "number");
+    assert.equal(typeof opsSummaryBody.requests?.latencyMs?.avg, "number");
   } finally {
     await stop();
   }
