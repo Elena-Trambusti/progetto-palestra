@@ -104,6 +104,11 @@
   min-height: 520px;
 }
 
+.area-node {
+  grid-area: node;
+  min-height: 520px;
+}
+
 .dashboard-grid--history {
   grid-template-columns: 1fr;
   grid-template-areas:
@@ -122,6 +127,16 @@
     "alarms"
     "zones"
     "network";
+}
+
+.dashboard-grid--node {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "tabs"
+    "alarms"
+    "zones"
+    "node";
 }
 
 @media (min-width: 960px) {
@@ -178,6 +193,20 @@
   }
 
   .dashboard-grid--network .area-network {
+    min-height: 640px;
+  }
+
+  .dashboard-grid--node {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "header"
+      "tabs"
+      "alarms"
+      "zones"
+      "node";
+  }
+
+  .dashboard-grid--node .area-node {
     min-height: 640px;
   }
 }

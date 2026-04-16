@@ -1,5 +1,5 @@
 import React from "react";
-import { LayoutDashboard, LineChart, RadioTower } from "lucide-react";
+import { LayoutDashboard, LineChart, RadioTower, Cpu } from "lucide-react";
 import "./MainTabs.css";
 
 export default function MainTabs({ value, onChange }) {
@@ -34,6 +34,16 @@ export default function MainTabs({ value, onChange }) {
       >
         <RadioTower size={18} aria-hidden />
         Rete LoRa
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === "node"}
+        className={`main-tabs__btn${value === "node" ? " main-tabs__btn--on" : ""}`}
+        onClick={() => onChange("node")}
+      >
+        <Cpu size={18} aria-hidden />
+        Dettaglio nodo
       </button>
     </div>
   );

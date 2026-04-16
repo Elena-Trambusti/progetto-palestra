@@ -157,6 +157,7 @@ function createInitialState(zoneId) {
     gatewayId: node?.gatewayId || GATEWAYS[0]?.id || "gw-livorno-01",
     uplinkAt: new Date().toISOString(),
     nodeStatus: zone.kind === "gateway" ? "gateway" : "online",
+    zoneKind: zone.kind || "",
     waterRapidDrop: false,
     waterRapidDropDelta: null,
     logLines: [
@@ -346,6 +347,7 @@ function tickZone(zoneId) {
   const st = store[zoneId];
   if (!st || !z) return;
   const node = findNodeByZone(zoneId);
+  st.zoneKind = z.kind || st.zoneKind || "";
 
   const prevWater = st.water;
   const prevEnv = {
@@ -449,6 +451,8 @@ function tickZone(zoneId) {
     humidityPct: nextHum,
     co2Ppm: nextCo2,
     vocIndex: nextVoc,
+    lightLux: nextLight,
+    flowLmin: nextFlow,
   });
 
   notifyEnvironmentEdges({
@@ -495,6 +499,7 @@ function applyManualReading(zoneId, payload) {
   const z = findZone(zoneId);
   const st = store[zoneId];
   if (!st || !z) return false;
+  st.zoneKind = z.kind || st.zoneKind || "";
 
   const {
     tempC,
@@ -601,6 +606,8 @@ function applyManualReading(zoneId, payload) {
     humidityPct: nextHum,
     co2Ppm: nextCo2,
     vocIndex: nextVoc,
+    lightLux: nextLight,
+    flowLmin: nextFlow,
   });
 
   notifyEnvironmentEdges({
@@ -1047,7 +1054,7 @@ app.get("/api/report/csv", limitReport, (req, res) => {
     `attachment; filename="palestra-${name}-storico.csv"`
   );
   const header =
-    "iso_utc,zone,temp_c,water_pct,humidity_pct,co2_ppm,voc_index\n";
+    "iso_utc,zone,temp_c,water_pct,humidity_pct,co2_ppm,voc_index,light_lux,flow_lmin\n";
   const csvCell = (v) => {
     if (v === null || v === undefined) return "";
     const s = String(v);
@@ -1064,6 +1071,8 @@ app.get("/api/report/csv", limitReport, (req, res) => {
         r.humidity ?? "",
         r.co2 ?? "",
         r.voc ?? "",
+        r.light ?? "",
+        r.flow ?? "",
       ]
         .map(csvCell)
         .join(",")

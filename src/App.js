@@ -13,6 +13,7 @@ import FloorPlanMap from "./components/FloorPlanMap";
 import MainTabs from "./components/MainTabs";
 import HistoryReportPanel from "./components/HistoryReportPanel";
 import NetworkStatusPanel from "./components/NetworkStatusPanel";
+import NodeDetailPanel from "./components/NodeDetailPanel";
 import { MOCK_ZONES } from "./services/mockSensors";
 import { useDashboardSensors } from "./hooks/useDashboardSensors";
 import { getStoredSessionToken, logoutFromGateway } from "./services/sensorApi";
@@ -116,6 +117,8 @@ export default function App() {
           mainTab === "history" ? " dashboard-grid--history" : ""
         }${
           mainTab === "network" ? " dashboard-grid--network" : ""
+        }${
+          mainTab === "node" ? " dashboard-grid--node" : ""
         }${
           mainTab === "dashboard" && showFloorPlan
             ? " dashboard-grid--floorplan"
@@ -225,7 +228,7 @@ export default function App() {
               />
             </div>
           </>
-        ) : (
+        ) : mainTab === "network" ? (
           <>
             <div className="area-zones">
               <ZoneSelector
@@ -241,6 +244,35 @@ export default function App() {
                 telemetry={telemetry}
                 networkSummary={networkSummary}
                 networkNodes={networkNodes}
+                loading={dashboardLoading}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="area-zones">
+              <ZoneSelector
+                zones={zones}
+                value={zoneId}
+                onChange={setZoneId}
+                disabled={Boolean(useApi && zonesLoading)}
+                errorText={useApi ? zonesError : null}
+              />
+            </div>
+            <div className="area-node">
+              <NodeDetailPanel
+                zoneName={zones.find((z) => z.id === zoneId)?.name || zoneId}
+                telemetry={telemetry}
+                metrics={{
+                  temperatureC: lastTemp,
+                  levelPercent: water,
+                  flowLmin,
+                  lightLux,
+                  humidityPercent,
+                  co2Ppm,
+                  vocIndex,
+                }}
+                alarms={activeAlarms}
                 loading={dashboardLoading}
               />
             </div>

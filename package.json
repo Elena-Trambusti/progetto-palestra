@@ -28,7 +28,8 @@
     "verify:ci": "npm run lint && npm run test:all && npm run build",
     "eject": "react-scripts eject",
     "server": "npm --prefix server start",
-    "stack": "start-server-and-test \"npm run server\" http://127.0.0.1:4000/api/zones \"cross-env REACT_APP_GATEWAY_MODE=proxy npm start\""
+    "stack": "start-server-and-test \"npm run server\" http://127.0.0.1:4000/api/zones \"cross-env REACT_APP_GATEWAY_MODE=proxy npm start\"",
+    "sim:lora": "node server/tools/loraGatewaySimulator.js"
   },
   "eslintConfig": {
     "extends": [

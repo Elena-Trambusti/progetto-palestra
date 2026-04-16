@@ -1,27 +1,59 @@
 /**
  * Soglie allarmi ambientali (override da env sul server).
  */
-function thresholdsFromEnv() {
-  return {
-    tempHighC: Number(process.env.ALARM_TEMP_HIGH_C) || 32,
-    tempLowC: Number(process.env.ALARM_TEMP_LOW_C) || 17,
-    humidityHighPct: Number(process.env.ALARM_HUMIDITY_HIGH_PCT) || 72,
-    humidityLowPct: Number(process.env.ALARM_HUMIDITY_LOW_PCT) || 28,
-    co2HighPpm: Number(process.env.ALARM_CO2_HIGH_PPM) || 1000,
-    vocHigh: Number(process.env.ALARM_VOC_HIGH) || 350,
-    waterLowPct: Number(process.env.ALARM_WATER_LOW_PCT) || 25,
-    waterCriticalPct: Number(process.env.ALARM_WATER_CRITICAL_PCT) || 12,
-    flowLowLmin: Number(process.env.ALARM_FLOW_LOW_LMIN) || 1.5,
-    flowHighLmin: Number(process.env.ALARM_FLOW_HIGH_LMIN) || 22,
-    lightLowLux: Number(process.env.ALARM_LIGHT_LOW_LUX) || 80,
-    lightHighLux: Number(process.env.ALARM_LIGHT_HIGH_LUX) || 1200,
+function baseThresholdsFromEnv(prefix = "ALARM_") {
+  const read = (key, fallback) => {
+    const raw = process.env[`${prefix}${key}`];
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : fallback;
   };
+  return {
+    tempHighC: read("TEMP_HIGH_C", 32),
+    tempLowC: read("TEMP_LOW_C", 17),
+    humidityHighPct: read("HUMIDITY_HIGH_PCT", 72),
+    humidityLowPct: read("HUMIDITY_LOW_PCT", 28),
+    co2HighPpm: read("CO2_HIGH_PPM", 1000),
+    vocHigh: read("VOC_HIGH", 350),
+    waterLowPct: read("WATER_LOW_PCT", 25),
+    waterCriticalPct: read("WATER_CRITICAL_PCT", 12),
+    flowLowLmin: read("FLOW_LOW_LMIN", 1.5),
+    flowHighLmin: read("FLOW_HIGH_LMIN", 22),
+    lightLowLux: read("LIGHT_LOW_LUX", 80),
+    lightHighLux: read("LIGHT_HIGH_LUX", 1200),
+  };
+}
+
+function thresholdsFromEnv() {
+  return baseThresholdsFromEnv("ALARM_");
+}
+
+/**
+ * Override soglie per tipo nodo/zona, via env.
+ * Esempi:
+ * - ALARM_WATER__WATER_LOW_PCT=30
+ * - ALARM_FLOW__FLOW_HIGH_LMIN=18
+ * - ALARM_AIR__CO2_HIGH_PPM=900
+ * - ALARM_LIGHT__LIGHT_LOW_LUX=120
+ */
+function thresholdsForKind(kind, base = thresholdsFromEnv()) {
+  const k = String(kind || "").toLowerCase();
+  const map = {
+    water: "WATER__",
+    flow: "FLOW__",
+    "air-quality": "AIR__",
+    environment: "ENV__",
+    "light-climate": "LIGHT__",
+  };
+  const prefix = map[k] ? `ALARM_${map[k]}` : "";
+  if (!prefix) return base;
+  return { ...base, ...baseThresholdsFromEnv(prefix) };
 }
 
 /**
  * Allarmi attivi per UI (nessuna isteresi: stato istantaneo).
  */
-function activeAlarmsForState(st, t = thresholdsFromEnv()) {
+function activeAlarmsForState(st, tIn = thresholdsFromEnv()) {
+  const t = thresholdsForKind(st?.zoneKind, tIn);
   const alarms = [];
   const temp = st.lastTemp;
   const h = st.humidityPct;
@@ -143,4 +175,4 @@ function activeAlarmsForState(st, t = thresholdsFromEnv()) {
   return alarms;
 }
 
-module.exports = { activeAlarmsForState, thresholdsFromEnv };
+module.exports = { activeAlarmsForState, thresholdsFromEnv, thresholdsForKind };

@@ -50,7 +50,16 @@ function ensureCache(dataDir) {
   return cache;
 }
 
-function materializeRow({ zoneId, temp, water, humidityPct, co2Ppm, vocIndex }) {
+function materializeRow({
+  zoneId,
+  temp,
+  water,
+  humidityPct,
+  co2Ppm,
+  vocIndex,
+  lightLux,
+  flowLmin,
+}) {
   return {
     iso: new Date().toISOString(),
     zone: zoneId,
@@ -62,15 +71,26 @@ function materializeRow({ zoneId, temp, water, humidityPct, co2Ppm, vocIndex }) 
         : Number(humidityPct),
     co2: co2Ppm === undefined || co2Ppm === null ? null : Number(co2Ppm),
     voc: vocIndex === undefined || vocIndex === null ? null : Number(vocIndex),
+    light: lightLux === undefined || lightLux === null ? null : Number(lightLux),
+    flow: flowLmin === undefined || flowLmin === null ? null : Number(flowLmin),
   };
 }
 
 function appendReading(
   dataDir,
-  { zoneId, temp, water, humidityPct, co2Ppm, vocIndex }
+  { zoneId, temp, water, humidityPct, co2Ppm, vocIndex, lightLux, flowLmin }
 ) {
   ensureDir(dataDir);
-  const row = materializeRow({ zoneId, temp, water, humidityPct, co2Ppm, vocIndex });
+  const row = materializeRow({
+    zoneId,
+    temp,
+    water,
+    humidityPct,
+    co2Ppm,
+    vocIndex,
+    lightLux,
+    flowLmin,
+  });
   const line = `${JSON.stringify(row)}\n`;
   const cache = ensureCache(dataDir);
   const arr = cache.byZone.get(zoneId) || [];
@@ -129,6 +149,8 @@ function readZoneHistoryPoints(dataDir, zoneId, limit, range = {}) {
         humidity: r.humidity != null ? Number(r.humidity) : null,
         co2: r.co2 != null ? Number(r.co2) : null,
         voc: r.voc != null ? Number(r.voc) : null,
+        light: r.light != null ? Number(r.light) : null,
+        flow: r.flow != null ? Number(r.flow) : null,
       };
     })
     .filter((row) => {
