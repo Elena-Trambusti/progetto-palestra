@@ -10,6 +10,7 @@ const cookieParser = require("cookie-parser");
 const { parse: parseCookie } = require("cookie");
 const { WebSocketServer } = require("ws");
 const history = require("./lib/history");
+const networkEventsStore = require("./lib/networkEvents");
 const {
   maybeNotifyWaterLow,
   maybeNotifyWaterRapidDrop,
@@ -172,7 +173,7 @@ const SENSORS = NODES.map((node) => node.label);
 
 const EVENT_BUFFER_MAX = Number(process.env.NETWORK_EVENT_BUFFER_MAX) || 250;
 /** @type {Array<{ iso: string, t: number, type: string, severity: string, nodeId?: string, nodeLabel?: string, zoneId?: string, zoneName?: string, message: string, data?: any }>} */
-const networkEvents = [];
+const networkEvents = networkEventsStore.loadRecent(DATA_DIR, EVENT_BUFFER_MAX);
 
 function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -203,6 +204,7 @@ function pushNetworkEvent(evt) {
   if (networkEvents.length > EVENT_BUFFER_MAX) {
     networkEvents.splice(0, networkEvents.length - EVENT_BUFFER_MAX);
   }
+  networkEventsStore.appendEvent(DATA_DIR, row);
 }
 
 function maybeEmitNodeStatusTransition(zoneId, prevStatus, nextStatus) {
@@ -489,6 +491,7 @@ function tickZone(zoneId) {
   st.logLines = logLines;
 
   history.appendReading(DATA_DIR, {
+    nodeId: st.nodeId,
     zoneId,
     temp: nextTemp,
     water: nextWater,
@@ -649,6 +652,7 @@ function applyManualReading(zoneId, payload) {
   st.logLines = logLines;
 
   history.appendReading(DATA_DIR, {
+    nodeId: st.nodeId,
     zoneId,
     temp: nextTemp,
     water: nextWater,
@@ -1072,10 +1076,14 @@ app.get("/api/dashboard/snapshot", limitApiRead, (req, res) => {
 });
 
 app.get("/api/history", limitApiRead, (req, res) => {
-  const q = String(req.query.zoneId || "").trim();
-  const zoneId = ZONES.some((z) => z.id === q) ? q : ZONES[0].id;
+  const qZone = String(req.query.zoneId || "").trim();
+  const qNode = String(req.query.nodeId || "").trim();
+  const zoneId = ZONES.some((z) => z.id === qZone) ? qZone : ZONES[0].id;
+  const nodeId = NODES.some((n) => n.id === qNode) ? qNode : "";
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
-  const points = history.readZoneSeries(DATA_DIR, zoneId, limit);
+  const points = nodeId
+    ? history.readNodeSeries(DATA_DIR, nodeId, limit)
+    : history.readZoneSeries(DATA_DIR, zoneId, limit);
   const fromIso = String(req.query.from || "").trim();
   const toIso = String(req.query.to || "").trim();
   if (!validateIsoRange(fromIso, toIso)) {
@@ -1083,18 +1091,17 @@ app.get("/api/history", limitApiRead, (req, res) => {
   }
   const range =
     fromIso || toIso ? { fromIso: fromIso || undefined, toIso: toIso || undefined } : {};
-  const samples = history.readZoneHistoryPoints(
-    DATA_DIR,
-    zoneId,
-    limit,
-    range
-  );
-  res.json({ zoneId, limit, points, samples });
+  const samples = nodeId
+    ? history.readNodeHistoryPoints(DATA_DIR, nodeId, limit, range)
+    : history.readZoneHistoryPoints(DATA_DIR, zoneId, limit, range);
+  res.json({ zoneId, nodeId: nodeId || null, limit, points, samples });
 });
 
 app.get("/api/report/csv", limitReport, (req, res) => {
-  const q = String(req.query.zoneId || "").trim();
-  const zoneId = ZONES.some((z) => z.id === q) ? q : ZONES[0].id;
+  const qZone = String(req.query.zoneId || "").trim();
+  const qNode = String(req.query.nodeId || "").trim();
+  const zoneId = ZONES.some((z) => z.id === qZone) ? qZone : ZONES[0].id;
+  const nodeId = NODES.some((n) => n.id === qNode) ? qNode : "";
   const cap = Math.min(15000, Math.max(50, Number(req.query.limit) || 4000));
   const fromIso = String(req.query.from || "").trim();
   const toIso = String(req.query.to || "").trim();
@@ -1103,15 +1110,17 @@ app.get("/api/report/csv", limitReport, (req, res) => {
   }
   const range =
     fromIso || toIso ? { fromIso: fromIso || undefined, toIso: toIso || undefined } : {};
-  const rows = history.readZoneHistoryPoints(DATA_DIR, zoneId, cap, range);
-  const name = ZONES.find((z) => z.id === zoneId)?.id || zoneId;
+  const rows = nodeId
+    ? history.readNodeHistoryPoints(DATA_DIR, nodeId, cap, range)
+    : history.readZoneHistoryPoints(DATA_DIR, zoneId, cap, range);
+  const name = nodeId || (ZONES.find((z) => z.id === zoneId)?.id || zoneId);
   res.setHeader("content-type", "text/csv; charset=utf-8");
   res.setHeader(
     "content-disposition",
     `attachment; filename="palestra-${name}-storico.csv"`
   );
   const header =
-    "iso_utc,zone,temp_c,water_pct,humidity_pct,co2_ppm,voc_index,light_lux,flow_lmin\n";
+    "iso_utc,target,temp_c,water_pct,humidity_pct,co2_ppm,voc_index,light_lux,flow_lmin\n";
   const csvCell = (v) => {
     if (v === null || v === undefined) return "";
     const s = String(v);
@@ -1122,7 +1131,7 @@ app.get("/api/report/csv", limitReport, (req, res) => {
     .map((r) =>
       [
         r.iso,
-        zoneId,
+        nodeId || zoneId,
         r.temp,
         r.water,
         r.humidity ?? "",

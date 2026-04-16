@@ -49,11 +49,32 @@ function thresholdsForKind(kind, base = thresholdsFromEnv()) {
   return { ...base, ...baseThresholdsFromEnv(prefix) };
 }
 
+function nodeEnvKey(nodeId) {
+  return String(nodeId || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Override soglie per singolo nodo via env.
+ * Esempi:
+ * - ALARM_NODE__NODE_WATER_01__WATER_LOW_PCT=30
+ * - ALARM_NODE__NODE_AIR_01__CO2_HIGH_PPM=900
+ */
+function thresholdsForNode(nodeId, base) {
+  const key = nodeEnvKey(nodeId);
+  if (!key) return base;
+  const prefix = `ALARM_NODE__${key}__`;
+  return { ...base, ...baseThresholdsFromEnv(prefix) };
+}
+
 /**
  * Allarmi attivi per UI (nessuna isteresi: stato istantaneo).
  */
 function activeAlarmsForState(st, tIn = thresholdsFromEnv()) {
-  const t = thresholdsForKind(st?.zoneKind, tIn);
+  const byKind = thresholdsForKind(st?.zoneKind, tIn);
+  const t = thresholdsForNode(st?.nodeId, byKind);
   const alarms = [];
   const temp = st.lastTemp;
   const h = st.humidityPct;
@@ -175,4 +196,9 @@ function activeAlarmsForState(st, tIn = thresholdsFromEnv()) {
   return alarms;
 }
 
-module.exports = { activeAlarmsForState, thresholdsFromEnv, thresholdsForKind };
+module.exports = {
+  activeAlarmsForState,
+  thresholdsFromEnv,
+  thresholdsForKind,
+  thresholdsForNode,
+};

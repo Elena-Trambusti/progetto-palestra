@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const MAX_CACHE_ROWS_PER_ZONE = 25000;
-/** @type {Map<string, { loaded: boolean, byZone: Map<string, any[]> }>} */
+/** @type {Map<string, { loaded: boolean, byZone: Map<string, any[]>, byNode: Map<string, any[]> }>} */
 const caches = new Map();
 
 function ensureDir(dir) {
@@ -26,7 +26,7 @@ function parseRow(line) {
 function ensureCache(dataDir) {
   let cache = caches.get(dataDir);
   if (!cache) {
-    cache = { loaded: false, byZone: new Map() };
+    cache = { loaded: false, byZone: new Map(), byNode: new Map() };
     caches.set(dataDir, cache);
   }
   if (cache.loaded) return cache;
@@ -44,6 +44,15 @@ function ensureCache(dataDir) {
         arr.splice(0, arr.length - MAX_CACHE_ROWS_PER_ZONE);
       }
       cache.byZone.set(row.zone, arr);
+
+      if (typeof row.node === "string" && row.node) {
+        const nArr = cache.byNode.get(row.node) || [];
+        nArr.push(row);
+        if (nArr.length > MAX_CACHE_ROWS_PER_ZONE) {
+          nArr.splice(0, nArr.length - MAX_CACHE_ROWS_PER_ZONE);
+        }
+        cache.byNode.set(row.node, nArr);
+      }
     }
   }
   cache.loaded = true;
@@ -51,6 +60,7 @@ function ensureCache(dataDir) {
 }
 
 function materializeRow({
+  nodeId,
   zoneId,
   temp,
   water,
@@ -62,6 +72,7 @@ function materializeRow({
 }) {
   return {
     iso: new Date().toISOString(),
+    node: nodeId || null,
     zone: zoneId,
     temp,
     water,
@@ -78,10 +89,11 @@ function materializeRow({
 
 function appendReading(
   dataDir,
-  { zoneId, temp, water, humidityPct, co2Ppm, vocIndex, lightLux, flowLmin }
+  { nodeId, zoneId, temp, water, humidityPct, co2Ppm, vocIndex, lightLux, flowLmin }
 ) {
   ensureDir(dataDir);
   const row = materializeRow({
+    nodeId,
     zoneId,
     temp,
     water,
@@ -100,6 +112,15 @@ function appendReading(
   }
   cache.byZone.set(zoneId, arr);
 
+  if (nodeId) {
+    const nArr = cache.byNode.get(nodeId) || [];
+    nArr.push(row);
+    if (nArr.length > MAX_CACHE_ROWS_PER_ZONE) {
+      nArr.splice(0, nArr.length - MAX_CACHE_ROWS_PER_ZONE);
+    }
+    cache.byNode.set(nodeId, nArr);
+  }
+
   fs.appendFile(readingsPath(dataDir), line, "utf8", (err) => {
     if (err) {
       // eslint-disable-next-line no-console
@@ -114,8 +135,28 @@ function readRawZoneRows(dataDir, zoneId, limit) {
   return rows.slice(-limit);
 }
 
+function readRawNodeRows(dataDir, nodeId, limit) {
+  const cache = ensureCache(dataDir);
+  const rows = cache.byNode.get(nodeId) || [];
+  return rows.slice(-limit);
+}
+
 function readZoneSeries(dataDir, zoneId, limit) {
   return readRawZoneRows(dataDir, zoneId, limit).map((r) => {
+    const d = new Date(r.iso);
+    const label = Number.isNaN(d.getTime())
+      ? String(r.iso).slice(11, 19)
+      : d.toLocaleTimeString("it-IT", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+    return { label, value: Number(r.temp) };
+  });
+}
+
+function readNodeSeries(dataDir, nodeId, limit) {
+  return readRawNodeRows(dataDir, nodeId, limit).map((r) => {
     const d = new Date(r.iso);
     const label = Number.isNaN(d.getTime())
       ? String(r.iso).slice(11, 19)
@@ -163,6 +204,36 @@ function readZoneHistoryPoints(dataDir, zoneId, limit, range = {}) {
   return mapped.slice(-limit);
 }
 
+function readNodeHistoryPoints(dataDir, nodeId, limit, range = {}) {
+  const rows = readRawNodeRows(dataDir, nodeId, Math.min(20000, limit * 2));
+  const fromMs = range.fromIso ? new Date(range.fromIso).getTime() : null;
+  const toMs = range.toIso ? new Date(range.toIso).getTime() : null;
+
+  const mapped = rows
+    .map((r) => {
+      const d = new Date(r.iso);
+      const t = Number.isNaN(d.getTime()) ? 0 : d.getTime();
+      return {
+        iso: String(r.iso || ""),
+        t,
+        temp: Number(r.temp),
+        water: Number(r.water),
+        humidity: r.humidity != null ? Number(r.humidity) : null,
+        co2: r.co2 != null ? Number(r.co2) : null,
+        voc: r.voc != null ? Number(r.voc) : null,
+        light: r.light != null ? Number(r.light) : null,
+        flow: r.flow != null ? Number(r.flow) : null,
+      };
+    })
+    .filter((row) => {
+      if (fromMs != null && Number.isFinite(fromMs) && row.t < fromMs) return false;
+      if (toMs != null && Number.isFinite(toMs) && row.t > toMs) return false;
+      return true;
+    });
+
+  return mapped.slice(-limit);
+}
+
 /**
  * Ultimi campioni con timestamp e acqua (per ETA e anomalie).
  * @returns {Array<{ iso: string, t: number, water: number, temp?: number }>}
@@ -195,7 +266,9 @@ function mergeSeries(historyPoints, liveLabels, liveValues, maxTotal = 120) {
 module.exports = {
   appendReading,
   readZoneSeries,
+  readNodeSeries,
   readZoneWaterSamples,
   readZoneHistoryPoints,
+  readNodeHistoryPoints,
   mergeSeries,
 };
