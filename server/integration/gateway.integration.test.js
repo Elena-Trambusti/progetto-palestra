@@ -82,7 +82,7 @@ test("health and ingest auth flow with ingest secret", async () => {
     const noSecret = await fetch(`${baseUrl}/api/ingest/reading`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ zoneId: "docce-p1", temperatureC: 29.4 }),
+      body: JSON.stringify({ zoneId: "serbatoio-idrico", temperatureC: 29.4 }),
     });
     assert.equal(noSecret.status, 401);
 
@@ -92,11 +92,19 @@ test("health and ingest auth flow with ingest secret", async () => {
         "content-type": "application/json",
         "x-ingest-secret": "test-ingest-secret",
       },
-      body: JSON.stringify({ zoneId: "docce-p1", temperatureC: 29.4 }),
+      body: JSON.stringify({
+        nodeId: "node-water-01",
+        zoneId: "serbatoio-idrico",
+        gatewayId: "gw-livorno-01",
+        temperatureC: 29.4,
+        levelPercent: 61,
+        batteryPercent: 82,
+      }),
     });
     assert.equal(okIngest.status, 200);
     const ingestBody = await okIngest.json();
     assert.equal(ingestBody.ok, true);
+    assert.equal(ingestBody.nodeId, "node-water-01");
   } finally {
     await stop();
   }

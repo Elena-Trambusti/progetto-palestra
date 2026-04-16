@@ -16,6 +16,32 @@ function parseAlarms(raw) {
     .filter((a) => a.code);
 }
 
+function parseNode(node) {
+  if (!node || typeof node !== "object") return null;
+  return {
+    id: String(node.id ?? ""),
+    label: String(node.label ?? node.nodeLabel ?? node.id ?? ""),
+    zoneId: String(node.zoneId ?? ""),
+    zoneName: String(node.zoneName ?? ""),
+    gatewayId: String(node.gatewayId ?? ""),
+    gatewayName: String(node.gatewayName ?? ""),
+    hardware: typeof node.hardware === "string" ? node.hardware : "",
+    sensors: Array.isArray(node.sensors) ? node.sensors.map((item) => String(item)) : [],
+    floor: node.floor != null ? String(node.floor) : "",
+    mapX: num(node.mapX, NaN),
+    mapY: num(node.mapY, NaN),
+    batteryPercent:
+      node.batteryPercent != null && Number.isFinite(Number(node.batteryPercent))
+        ? Number(node.batteryPercent)
+        : null,
+    rssi: node.rssi != null && Number.isFinite(Number(node.rssi)) ? Number(node.rssi) : null,
+    snr: node.snr != null && Number.isFinite(Number(node.snr)) ? Number(node.snr) : null,
+    uplinkAt: typeof node.uplinkAt === "string" ? node.uplinkAt : null,
+    status: typeof node.status === "string" ? node.status : "unknown",
+    metrics: node.metrics && typeof node.metrics === "object" ? node.metrics : {},
+  };
+}
+
 export function normalizeDashboardPayload(data) {
   if (!data || typeof data !== "object") {
     throw new Error("Payload non valido");
@@ -70,9 +96,29 @@ export function normalizeDashboardPayload(data) {
   const humidityPercent = num(env.humidityPercent ?? env.humidity ?? data.humidityPercent, NaN);
   const co2Ppm = num(env.co2Ppm ?? env.co2 ?? data.co2Ppm, NaN);
   const vocIndex = num(env.vocIndex ?? env.voc ?? data.vocIndex, NaN);
+  const lightLux = num(env.lightLux ?? data.lightLux, NaN);
+  const flowLmin = num(env.flowLmin ?? data.flowLmin, NaN);
 
   const siteZones = Array.isArray(data.siteZones) ? data.siteZones : [];
   const floors = Array.isArray(data.floors) ? data.floors : [];
+  const telemetry =
+    data.telemetry && typeof data.telemetry === "object" ? data.telemetry : {};
+  const network =
+    data.network && typeof data.network === "object"
+      ? {
+          gateway:
+            data.network.gateway && typeof data.network.gateway === "object"
+              ? data.network.gateway
+              : null,
+          totals:
+            data.network.totals && typeof data.network.totals === "object"
+              ? data.network.totals
+              : null,
+          nodes: Array.isArray(data.network.nodes)
+            ? data.network.nodes.map(parseNode).filter(Boolean)
+            : [],
+        }
+      : { gateway: null, totals: null, nodes: [] };
 
   const rawLogs = data.logLines ?? data.events ?? data.terminal ?? [];
   const logLines = Array.isArray(rawLogs)
@@ -105,11 +151,38 @@ export function normalizeDashboardPayload(data) {
     humidityPercent: Number.isFinite(humidityPercent) ? humidityPercent : null,
     co2Ppm: Number.isFinite(co2Ppm) ? co2Ppm : null,
     vocIndex: Number.isFinite(vocIndex) ? vocIndex : null,
+    lightLux: Number.isFinite(lightLux) ? lightLux : null,
+    flowLmin: Number.isFinite(flowLmin) ? flowLmin : null,
     activeAlarms: parseAlarms(data.activeAlarms),
     siteZones,
     floors,
     logLines: logLines.filter(Boolean),
     facility: data.facility ?? null,
+    telemetry: {
+      nodeId: String(telemetry.nodeId ?? ""),
+      nodeLabel: String(telemetry.nodeLabel ?? telemetry.nodeId ?? ""),
+      gatewayId: String(telemetry.gatewayId ?? ""),
+      gatewayName: String(telemetry.gatewayName ?? telemetry.gatewayId ?? ""),
+      batteryPercent:
+        telemetry.batteryPercent != null && Number.isFinite(Number(telemetry.batteryPercent))
+          ? Number(telemetry.batteryPercent)
+          : null,
+      rssi:
+        telemetry.rssi != null && Number.isFinite(Number(telemetry.rssi))
+          ? Number(telemetry.rssi)
+          : null,
+      snr:
+        telemetry.snr != null && Number.isFinite(Number(telemetry.snr))
+          ? Number(telemetry.snr)
+          : null,
+      uplinkAt: typeof telemetry.uplinkAt === "string" ? telemetry.uplinkAt : null,
+      nodeStatus:
+        typeof telemetry.nodeStatus === "string" ? telemetry.nodeStatus : "unknown",
+      sensors: Array.isArray(telemetry.sensors)
+        ? telemetry.sensors.map((item) => String(item))
+        : [],
+    },
+    network,
     zone: z
       ? {
           id: String(z.id ?? ""),

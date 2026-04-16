@@ -112,6 +112,8 @@ export async function fetchZonesCatalog() {
     floor: z.floor != null ? String(z.floor) : "",
     mapX: Number.isFinite(Number(z.mapX)) ? Number(z.mapX) : 50,
     mapY: Number.isFinite(Number(z.mapY)) ? Number(z.mapY) : 50,
+    kind: typeof z.kind === "string" ? z.kind : "",
+    primaryNodeId: typeof z.primaryNodeId === "string" ? z.primaryNodeId : "",
     planPath:
       typeof z.planPath === "string" && z.planPath
         ? z.planPath

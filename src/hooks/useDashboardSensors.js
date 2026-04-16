@@ -6,6 +6,8 @@ import {
   generateMockSensorTick,
   initMockSnapshot,
   MOCK_MAX_POINTS,
+  MOCK_GATEWAYS,
+  MOCK_NODES,
   MOCK_ZONES,
 } from "../services/mockSensors";
 import {
@@ -99,8 +101,27 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
   const [humidityPercent, setHumidityPercent] = useState(null);
   const [co2Ppm, setCo2Ppm] = useState(null);
   const [vocIndex, setVocIndex] = useState(null);
+  const [lightLux, setLightLux] = useState(null);
+  const [flowLmin, setFlowLmin] = useState(null);
   const [activeAlarms, setActiveAlarms] = useState([]);
   const [siteZones, setSiteZones] = useState([]);
+  const [networkNodes, setNetworkNodes] = useState([]);
+  const [networkSummary, setNetworkSummary] = useState({
+    gateway: MOCK_GATEWAYS[0] || null,
+    totals: { nodes: MOCK_NODES.length, online: MOCK_NODES.length, stale: 0, offline: 0 },
+  });
+  const [telemetry, setTelemetry] = useState({
+    nodeId: "",
+    nodeLabel: "",
+    gatewayId: "",
+    gatewayName: "",
+    batteryPercent: null,
+    rssi: null,
+    snr: null,
+    uplinkAt: null,
+    nodeStatus: "unknown",
+    sensors: [],
+  });
   const [floorsCatalog, setFloorsCatalog] = useState(() =>
     MOCK_FLOORS.map((f) => ({
       ...f,
@@ -146,8 +167,16 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
       );
       setCo2Ppm(snap.co2Ppm != null && Number.isFinite(snap.co2Ppm) ? snap.co2Ppm : null);
       setVocIndex(snap.vocIndex != null && Number.isFinite(snap.vocIndex) ? snap.vocIndex : null);
+      setLightLux(snap.lightLux != null && Number.isFinite(snap.lightLux) ? snap.lightLux : null);
+      setFlowLmin(snap.flowLmin != null && Number.isFinite(snap.flowLmin) ? snap.flowLmin : null);
       setActiveAlarms(Array.isArray(snap.activeAlarms) ? snap.activeAlarms : []);
       setSiteZones(Array.isArray(snap.siteZones) ? snap.siteZones : []);
+      setNetworkNodes(snap.network?.nodes || []);
+      setNetworkSummary({
+        gateway: snap.network?.gateway || null,
+        totals: snap.network?.totals || null,
+      });
+      setTelemetry(snap.telemetry || {});
       if (snap.floors?.length) {
         setFloorsCatalog(snap.floors);
       }
@@ -222,10 +251,12 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
       }
     });
     const meta = MOCK_ZONES.find((z) => z.id === zoneId);
+    const nodeMeta = MOCK_NODES.find((node) => node.zoneId === zoneId);
     const prev = mockSnapshots.current[zoneId];
     const next = generateMockSensorTick(prev, MOCK_MAX_POINTS, {
       zoneName: meta?.name,
       zoneId,
+      nodeLabel: nodeMeta?.label,
     });
     mockSnapshots.current[zoneId] = {
       labels: next.labels,
@@ -235,6 +266,16 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
       humidityPct: next.humidityPct,
       co2Ppm: next.co2Ppm,
       vocIndex: next.vocIndex,
+      lightLux: next.lightLux,
+      flowLmin: next.flowLmin,
+      batteryPercent: next.batteryPercent,
+      rssi: next.rssi,
+      snr: next.snr,
+      nodeId: nodeMeta?.id || prev.nodeId,
+      nodeLabel: nodeMeta?.label || prev.nodeLabel,
+      gatewayId: nodeMeta?.gatewayId || prev.gatewayId,
+      uplinkAt: next.uplinkAt,
+      nodeStatus: next.nodeStatus,
     };
     const prevS = mockWaterSamples.current[zoneId] || [];
     const merged = [...prevS, { t: Date.now(), water: next.water }].slice(-200);
@@ -258,6 +299,8 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
     setHumidityPercent(next.humidityPct);
     setCo2Ppm(next.co2Ppm);
     setVocIndex(next.vocIndex);
+    setLightLux(next.lightLux);
+    setFlowLmin(next.flowLmin);
     const curSt = mockSnapshots.current[zoneId];
     setActiveAlarms(computeMockActiveAlarms(curSt));
     const sz = MOCK_ZONES.map((z) => {
@@ -275,10 +318,56 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
         humidityPercent: st.humidityPct,
         co2Ppm: st.co2Ppm,
         vocIndex: st.vocIndex,
+        lightLux: st.lightLux,
+        flowLmin: st.flowLmin,
+        batteryPercent: st.batteryPercent,
+        rssi: st.rssi,
+        snr: st.snr,
+        uplinkAt: st.uplinkAt,
+        nodeStatus: st.nodeStatus,
         alarmLevel: alarmLevelFromAlarms(al),
       };
     });
     setSiteZones(sz);
+    const nodes = MOCK_NODES.map((node) => {
+      const st = mockSnapshots.current[node.zoneId];
+      return {
+        id: node.id,
+        label: node.label,
+        zoneId: node.zoneId,
+        zoneName: MOCK_ZONES.find((z) => z.id === node.zoneId)?.name || node.zoneId,
+        gatewayId: node.gatewayId,
+        gatewayName: MOCK_GATEWAYS[0]?.name || node.gatewayId,
+        sensors: node.sensors,
+        batteryPercent: st.batteryPercent,
+        rssi: st.rssi,
+        snr: st.snr,
+        uplinkAt: st.uplinkAt,
+        status: st.nodeStatus,
+      };
+    });
+    setNetworkNodes(nodes);
+    setNetworkSummary({
+      gateway: MOCK_GATEWAYS[0] || null,
+      totals: {
+        nodes: nodes.length,
+        online: nodes.filter((node) => node.status === "online").length,
+        stale: nodes.filter((node) => node.status === "stale").length,
+        offline: nodes.filter((node) => node.status === "offline").length,
+      },
+    });
+    setTelemetry({
+      nodeId: curSt.nodeId,
+      nodeLabel: curSt.nodeLabel,
+      gatewayId: curSt.gatewayId,
+      gatewayName: MOCK_GATEWAYS[0]?.name || curSt.gatewayId,
+      batteryPercent: curSt.batteryPercent,
+      rssi: curSt.rssi,
+      snr: curSt.snr,
+      uplinkAt: curSt.uplinkAt,
+      nodeStatus: curSt.nodeStatus,
+      sensors: nodeMeta?.sensors || [],
+    });
     const row = {
       iso: new Date().toISOString(),
       temp: next.lastTemp,
@@ -317,6 +406,8 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
     setHumidityPercent(s.humidityPct ?? null);
     setCo2Ppm(s.co2Ppm ?? null);
     setVocIndex(s.vocIndex ?? null);
+    setLightLux(s.lightLux ?? null);
+    setFlowLmin(s.flowLmin ?? null);
     MOCK_ZONES.forEach((z) => ensureMockSnapshot(mockSnapshots, z.id));
     const sz = MOCK_ZONES.map((z) => {
       const st = mockSnapshots.current[z.id];
@@ -333,11 +424,58 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
         humidityPercent: st.humidityPct,
         co2Ppm: st.co2Ppm,
         vocIndex: st.vocIndex,
+        lightLux: st.lightLux,
+        flowLmin: st.flowLmin,
+        batteryPercent: st.batteryPercent,
+        rssi: st.rssi,
+        snr: st.snr,
+        uplinkAt: st.uplinkAt,
+        nodeStatus: st.nodeStatus,
         alarmLevel: alarmLevelFromAlarms(al),
       };
     });
     setSiteZones(sz);
     setActiveAlarms(computeMockActiveAlarms(s));
+    const nodes = MOCK_NODES.map((node) => {
+      const st = mockSnapshots.current[node.zoneId];
+      return {
+        id: node.id,
+        label: node.label,
+        zoneId: node.zoneId,
+        zoneName: MOCK_ZONES.find((z) => z.id === node.zoneId)?.name || node.zoneId,
+        gatewayId: node.gatewayId,
+        gatewayName: MOCK_GATEWAYS[0]?.name || node.gatewayId,
+        sensors: node.sensors,
+        batteryPercent: st.batteryPercent,
+        rssi: st.rssi,
+        snr: st.snr,
+        uplinkAt: st.uplinkAt,
+        status: st.nodeStatus,
+      };
+    });
+    const nodeMeta = MOCK_NODES.find((node) => node.zoneId === zoneId);
+    setNetworkNodes(nodes);
+    setNetworkSummary({
+      gateway: MOCK_GATEWAYS[0] || null,
+      totals: {
+        nodes: nodes.length,
+        online: nodes.filter((node) => node.status === "online").length,
+        stale: nodes.filter((node) => node.status === "stale").length,
+        offline: nodes.filter((node) => node.status === "offline").length,
+      },
+    });
+    setTelemetry({
+      nodeId: s.nodeId,
+      nodeLabel: s.nodeLabel,
+      gatewayId: s.gatewayId,
+      gatewayName: MOCK_GATEWAYS[0]?.name || s.gatewayId,
+      batteryPercent: s.batteryPercent,
+      rssi: s.rssi,
+      snr: s.snr,
+      uplinkAt: s.uplinkAt,
+      nodeStatus: s.nodeStatus,
+      sensors: nodeMeta?.sensors || [],
+    });
 
     if (prevMockZone.current && prevMockZone.current !== zoneId) {
       const name = MOCK_ZONES.find((z) => z.id === zoneId)?.name;
@@ -473,8 +611,13 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
     humidityPercent,
     co2Ppm,
     vocIndex,
+    lightLux,
+    flowLmin,
     activeAlarms,
     siteZones,
+    networkNodes,
+    networkSummary,
+    telemetry,
     floorsCatalog,
     reportSamples,
     waterEtaHours,

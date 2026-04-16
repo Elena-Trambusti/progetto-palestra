@@ -29,4 +29,43 @@ describe("normalizeDashboardPayload", () => {
     expect(out.water).toBe(12);
     expect(out.activeAlarms).toHaveLength(1);
   });
+
+  it("normalizes telemetry and network nodes", () => {
+    const out = normalizeDashboardPayload({
+      currentTemperature: 25.1,
+      waterLevelPercent: 44,
+      telemetry: {
+        nodeId: "node-air-01",
+        nodeLabel: "Nodo qualita aria",
+        gatewayId: "gw-livorno-01",
+        batteryPercent: 83,
+        rssi: -111,
+        snr: 6.5,
+        uplinkAt: "2026-04-15T19:30:00.000Z",
+        nodeStatus: "online",
+        sensors: ["temperatureC", "co2Ppm"],
+      },
+      network: {
+        totals: { nodes: 5, online: 4, stale: 1, offline: 0 },
+        nodes: [
+          {
+            id: "node-air-01",
+            label: "Nodo qualita aria",
+            zoneId: "sala-pesi-aria",
+            gatewayId: "gw-livorno-01",
+            batteryPercent: 83,
+            rssi: -111,
+            snr: 6.5,
+            uplinkAt: "2026-04-15T19:30:00.000Z",
+            status: "online",
+          },
+        ],
+      },
+    });
+
+    expect(out.telemetry.nodeId).toBe("node-air-01");
+    expect(out.telemetry.batteryPercent).toBe(83);
+    expect(out.network.totals.online).toBe(4);
+    expect(out.network.nodes[0].status).toBe("online");
+  });
 });

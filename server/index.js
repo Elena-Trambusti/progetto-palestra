@@ -17,7 +17,17 @@ const {
 } = require("./lib/notify");
 const { notifyEnvironmentEdges } = require("./lib/envNotifyEdges");
 const { activeAlarmsForState } = require("./lib/envAlarms");
-const { ZONES, FLOORS, planPathForFloor } = require("./lib/zonesData");
+const {
+  GATEWAYS,
+  ZONES,
+  NODES,
+  FLOORS,
+  planPathForFloor,
+  findZone,
+  findNode,
+  findNodeByZone,
+  findGateway,
+} = require("./lib/zonesData");
 const {
   computeWaterEta,
   detectRapidDrop,
@@ -127,6 +137,8 @@ function formatTime(d) {
 
 function createInitialState(zoneId) {
   const seed = hashZoneSeed(zoneId);
+  const zone = findZone(zoneId) || ZONES[0];
+  const node = findNodeByZone(zoneId);
   return {
     labels: [],
     values: [],
@@ -135,24 +147,203 @@ function createInitialState(zoneId) {
     humidityPct: Math.min(68, Math.max(32, 40 + seed * 28)),
     co2Ppm: Math.min(950, Math.max(420, 520 + Math.floor(seed * 380))),
     vocIndex: Math.min(280, Math.max(45, 90 + Math.floor(seed * 160))),
+    lightLux: Math.min(900, Math.max(140, 220 + Math.floor(seed * 520))),
+    flowLmin: Math.max(0, 4 + seed * 11),
+    batteryPercent: Math.max(54, 93 - Math.floor(seed * 20)),
+    rssi: -121 + Math.floor(seed * 18),
+    snr: Number((2.1 + seed * 8.2).toFixed(1)),
+    nodeId: node?.id || zone.primaryNodeId || zone.id,
+    nodeLabel: node?.label || zone.name,
+    gatewayId: node?.gatewayId || GATEWAYS[0]?.id || "gw-livorno-01",
+    uplinkAt: new Date().toISOString(),
+    nodeStatus: zone.kind === "gateway" ? "gateway" : "online",
     logLines: [
-      `[INFO] ${formatTime(new Date())} · Nodo ${zoneId} online · handshake OK`,
+      `[INFO] ${formatTime(new Date())} · Nodo ${node?.label || zoneId} online · uplink LoRa agganciato`,
     ],
   };
 }
 
 const store = Object.fromEntries(ZONES.map((z) => [z.id, createInitialState(z.id)]));
 
-const SENSORS = ["Sensore_A", "Sensore_B", "Nodo_DOCCE", "HUB_PALESTRA", "GW_LIVORNO"];
+const SENSORS = NODES.map((node) => node.label);
 
 function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function clampFinite(value, min, max, fallback) {
+  if (!Number.isFinite(Number(value))) return fallback;
+  return Math.min(max, Math.max(min, Number(value)));
+}
+
+function normalizeNetworkStatus(lastUplinkIso, fallback = "online") {
+  if (!lastUplinkIso) return fallback;
+  const ageMs = Date.now() - new Date(lastUplinkIso).getTime();
+  if (!Number.isFinite(ageMs)) return fallback;
+  if (ageMs > 4 * 60 * 1000) return "offline";
+  if (ageMs > 75 * 1000) return "stale";
+  return fallback === "gateway" ? "gateway" : "online";
+}
+
+function networkAlarmsForState(st) {
+  const alarms = [];
+  if (st.nodeStatus === "offline") {
+    alarms.push({
+      code: "node_offline",
+      severity: "critical",
+      message: `Nodo remoto ${st.nodeLabel || st.nodeId} offline`,
+      value: null,
+    });
+  } else if (st.nodeStatus === "stale") {
+    alarms.push({
+      code: "node_stale",
+      severity: "warning",
+      message: `Uplink nodo ${st.nodeLabel || st.nodeId} in ritardo`,
+      value: null,
+    });
+  }
+  if (Number.isFinite(st.batteryPercent) && st.batteryPercent <= 25) {
+    alarms.push({
+      code: "battery_low",
+      severity: "warning",
+      message: `Batteria nodo bassa (${Math.round(st.batteryPercent)} %)`,
+      value: Math.round(st.batteryPercent),
+    });
+  }
+  if (Number.isFinite(st.rssi) && st.rssi <= -118) {
+    alarms.push({
+      code: "signal_weak",
+      severity: "info",
+      message: `Segnale LoRa debole (${Math.round(st.rssi)} dBm)`,
+      value: Math.round(st.rssi),
+    });
+  }
+  return alarms;
+}
+
+function activeAlarmsIncludingNetwork(st) {
+  return [...activeAlarmsForState(st), ...networkAlarmsForState(st)];
+}
+
+function networkStatusSummary() {
+  const nodes = NODES.map((node) => {
+    const state = store[node.zoneId];
+    const gateway = findGateway(node.gatewayId);
+    const status = normalizeNetworkStatus(state?.uplinkAt, state?.nodeStatus || "online");
+    return {
+      id: node.id,
+      label: node.label,
+      zoneId: node.zoneId,
+      zoneName: findZone(node.zoneId)?.name || node.zoneId,
+      gatewayId: node.gatewayId,
+      gatewayName: gateway?.name || node.gatewayId,
+      sensors: node.sensors,
+      hardware: node.hardware,
+      floor: node.floor,
+      mapX: node.mapX,
+      mapY: node.mapY,
+      batteryPercent: state?.batteryPercent ?? null,
+      rssi: state?.rssi ?? null,
+      snr: state?.snr ?? null,
+      uplinkAt: state?.uplinkAt || null,
+      status,
+      metrics: {
+        temperatureC: state?.lastTemp ?? null,
+        humidityPercent: state?.humidityPct ?? null,
+        lightLux: state?.lightLux ?? null,
+        flowLmin: state?.flowLmin ?? null,
+        levelPercent: state?.water ?? null,
+        co2Ppm: state?.co2Ppm ?? null,
+        vocIndex: state?.vocIndex ?? null,
+      },
+    };
+  });
+  return {
+    gateway: GATEWAYS[0] || null,
+    totals: {
+      nodes: nodes.length,
+      online: nodes.filter((node) => node.status === "online").length,
+      stale: nodes.filter((node) => node.status === "stale").length,
+      offline: nodes.filter((node) => node.status === "offline").length,
+    },
+    nodes,
+  };
+}
+
+function normalizeReadingPayload(body) {
+  const zoneIdRaw = String(body?.zoneId || "").trim();
+  const nodeIdRaw = String(body?.nodeId || "").trim();
+  const zone = (zoneIdRaw && findZone(zoneIdRaw)) || (nodeIdRaw && findZone(findNode(nodeIdRaw)?.zoneId)) || null;
+  const node =
+    (nodeIdRaw && findNode(nodeIdRaw)) ||
+    (zone?.primaryNodeId ? findNode(zone.primaryNodeId) : null) ||
+    null;
+  if (!zone || !node) {
+    return {
+      error: "invalid_target",
+      zones: ZONES.map((item) => item.id),
+      nodes: NODES.map((item) => item.id),
+    };
+  }
+
+  const sensors = body?.sensors && typeof body.sensors === "object" ? body.sensors : {};
+  const tempC = body?.temperatureC ?? body?.tempC ?? sensors.temperatureC;
+  if (!Number.isFinite(Number(tempC))) {
+    return { error: "temperatureC_required" };
+  }
+
+  const waterPct =
+    body?.waterPercent ??
+    body?.levelPercent ??
+    sensors.waterPercent ??
+    sensors.levelPercent ??
+    null;
+  const humidityPct =
+    body?.humidityPercent ??
+    body?.humidityPct ??
+    body?.rh ??
+    sensors.humidityPercent ??
+    sensors.humidityPct ??
+    sensors.rh ??
+    null;
+  const co2Ppm = body?.co2Ppm ?? body?.co2 ?? sensors.co2Ppm ?? sensors.co2 ?? null;
+  const vocIndex = body?.vocIndex ?? body?.voc ?? body?.iaq ?? sensors.vocIndex ?? sensors.voc ?? sensors.iaq ?? null;
+  const lightLux = body?.lightLux ?? sensors.lightLux ?? null;
+  const flowLmin = body?.flowLmin ?? sensors.flowLmin ?? null;
+  const batteryPercent = body?.batteryPercent ?? body?.battery ?? null;
+  const rssi = body?.rssi ?? null;
+  const snr = body?.snr ?? null;
+  const gatewayId = String(body?.gatewayId || node.gatewayId || "").trim() || node.gatewayId;
+  const timestamp = String(body?.timestamp || new Date().toISOString()).trim();
+  const source = String(body?.source || "lora-gateway").slice(0, 64);
+
+  return {
+    zoneId: zone.id,
+    zoneName: zone.name,
+    nodeId: node.id,
+    nodeLabel: node.label,
+    gatewayId,
+    timestamp,
+    source,
+    tempC: Number(tempC),
+    waterPct: waterPct == null ? null : clampFinite(waterPct, 0, 100, null),
+    humidityPct: humidityPct == null ? null : clampFinite(humidityPct, 0, 100, null),
+    co2Ppm: co2Ppm == null ? null : clampFinite(co2Ppm, 0, 5000, null),
+    vocIndex: vocIndex == null ? null : clampFinite(vocIndex, 0, 2000, null),
+    lightLux: lightLux == null ? null : clampFinite(lightLux, 0, 20000, null),
+    flowLmin: flowLmin == null ? null : clampFinite(flowLmin, 0, 1000, null),
+    batteryPercent:
+      batteryPercent == null ? null : clampFinite(batteryPercent, 0, 100, null),
+    rssi: rssi == null ? null : clampFinite(rssi, -160, -1, null),
+    snr: snr == null ? null : clampFinite(snr, -30, 30, null),
+  };
+}
+
 function tickZone(zoneId) {
-  const z = ZONES.find((x) => x.id === zoneId);
+  const z = findZone(zoneId);
   const st = store[zoneId];
   if (!st || !z) return;
+  const node = findNodeByZone(zoneId);
 
   const prevWater = st.water;
   const prevEnv = {
@@ -167,10 +358,10 @@ function tickZone(zoneId) {
   const kinds = ["INFO", "OK", "RX"];
   const kind = pick(kinds);
   const msgs = [
-    `Ricezione dati ${sensor} [${z.name}]... OK`,
-    `Campione termico aggregato zona ${z.id}`,
-    `Livello compensato · checksum valido`,
-    `Ping periferico ${randomBetween(6, 22).toFixed(1)} ms`,
+    `Uplink LoRa ${sensor} [${z.name}] validato`,
+    `Campione telemetria distribuita ${z.id}`,
+    `Payload nodo ${node?.id || z.id} normalizzato`,
+    `Gateway centrale ha inoltrato il pacchetto`,
   ];
   const msg = pick(msgs);
 
@@ -194,6 +385,30 @@ function tickZone(zoneId) {
     420,
     Math.max(35, (st.vocIndex ?? 120) + randomBetween(-18, 22))
   );
+  const nextLight = Math.min(
+    1600,
+    Math.max(20, (st.lightLux ?? 320) + randomBetween(-60, 85))
+  );
+  const nextFlow = Math.min(
+    26,
+    Math.max(0, (st.flowLmin ?? 8) + randomBetween(-1.6, 1.8))
+  );
+  const nextBattery = Math.max(
+    12,
+    Math.min(100, (st.batteryPercent ?? 84) + randomBetween(-0.22, 0.05))
+  );
+  const nextRssi = Math.min(
+    -92,
+    Math.max(-126, (st.rssi ?? -110) + randomBetween(-2.3, 1.7))
+  );
+  const nextSnr = Math.min(
+    12,
+    Math.max(-3, (st.snr ?? 5.4) + randomBetween(-0.8, 0.65))
+  );
+  const packetRoll = Math.random();
+  const nextNodeStatus =
+    z.kind === "gateway" ? "gateway" : packetRoll < 0.04 ? "offline" : packetRoll < 0.14 ? "stale" : "online";
+  const uplinkLagSec = nextNodeStatus === "offline" ? 380 : nextNodeStatus === "stale" ? 110 : 4;
 
   const labels = [...st.labels, t];
   const values = [...st.values, nextTemp];
@@ -213,6 +428,16 @@ function tickZone(zoneId) {
   st.humidityPct = nextHum;
   st.co2Ppm = nextCo2;
   st.vocIndex = nextVoc;
+  st.lightLux = nextLight;
+  st.flowLmin = nextFlow;
+  st.batteryPercent = nextBattery;
+  st.rssi = nextRssi;
+  st.snr = Number(nextSnr.toFixed(1));
+  st.nodeId = node?.id || st.nodeId;
+  st.nodeLabel = node?.label || st.nodeLabel;
+  st.gatewayId = node?.gatewayId || st.gatewayId;
+  st.uplinkAt = new Date(Date.now() - uplinkLagSec * 1000).toISOString();
+  st.nodeStatus = normalizeNetworkStatus(st.uplinkAt, nextNodeStatus);
   st.logLines = logLines;
 
   history.appendReading(DATA_DIR, {
@@ -263,7 +488,7 @@ function tickZone(zoneId) {
  * Campione inviato da dispositivo esterno (es. Arduino / ESP32 via HTTP).
  */
 function applyManualReading(zoneId, payload) {
-  const z = ZONES.find((x) => x.id === zoneId);
+  const z = findZone(zoneId);
   const st = store[zoneId];
   if (!st || !z) return false;
 
@@ -273,7 +498,16 @@ function applyManualReading(zoneId, payload) {
     humidityPct: humIn,
     co2Ppm: co2In,
     vocIndex: vocIn,
+    lightLux: lightIn,
+    flowLmin: flowIn,
+    batteryPercent: batteryIn,
+    rssi: rssiIn,
+    snr: snrIn,
     source,
+    nodeId,
+    nodeLabel,
+    gatewayId,
+    timestamp,
   } = payload;
 
   const prevWater = st.water;
@@ -303,6 +537,26 @@ function applyManualReading(zoneId, payload) {
     vocIn != null && Number.isFinite(Number(vocIn))
       ? Math.min(2000, Math.max(0, Number(vocIn)))
       : st.vocIndex;
+  const nextLight =
+    lightIn != null && Number.isFinite(Number(lightIn))
+      ? Math.min(20000, Math.max(0, Number(lightIn)))
+      : st.lightLux;
+  const nextFlow =
+    flowIn != null && Number.isFinite(Number(flowIn))
+      ? Math.min(1000, Math.max(0, Number(flowIn)))
+      : st.flowLmin;
+  const nextBattery =
+    batteryIn != null && Number.isFinite(Number(batteryIn))
+      ? Math.min(100, Math.max(0, Number(batteryIn)))
+      : st.batteryPercent;
+  const nextRssi =
+    rssiIn != null && Number.isFinite(Number(rssiIn))
+      ? Math.min(-1, Math.max(-160, Number(rssiIn)))
+      : st.rssi;
+  const nextSnr =
+    snrIn != null && Number.isFinite(Number(snrIn))
+      ? Math.min(30, Math.max(-30, Number(snrIn)))
+      : st.snr;
 
   const labels = [...st.labels, t];
   const values = [...st.values, nextTemp];
@@ -313,7 +567,8 @@ function applyManualReading(zoneId, payload) {
   }
 
   const tag = String(source || "device").slice(0, 48);
-  const line = `[INGEST] ${t} · ${tag} · T=${nextTemp.toFixed(1)} °C · RH=${Number(nextHum).toFixed(0)}% · CO₂=${Math.round(nextCo2)} · ${z.name}`;
+  const nodeTag = String(nodeLabel || nodeId || z.primaryNodeId || z.id);
+  const line = `[INGEST] ${t} · ${tag} · ${nodeTag} · T=${nextTemp.toFixed(1)} °C · RH=${Number(nextHum).toFixed(0)}% · RSSI=${Math.round(nextRssi)} dBm · ${z.name}`;
   const logLines = [...st.logLines, line].slice(-35);
 
   st.labels = labels;
@@ -323,6 +578,16 @@ function applyManualReading(zoneId, payload) {
   st.humidityPct = nextHum;
   st.co2Ppm = nextCo2;
   st.vocIndex = nextVoc;
+  st.lightLux = nextLight;
+  st.flowLmin = nextFlow;
+  st.batteryPercent = nextBattery;
+  st.rssi = nextRssi;
+  st.snr = nextSnr != null ? Number(nextSnr.toFixed(1)) : st.snr;
+  st.nodeId = nodeId || st.nodeId;
+  st.nodeLabel = nodeLabel || st.nodeLabel;
+  st.gatewayId = gatewayId || st.gatewayId;
+  st.uplinkAt = timestamp || new Date().toISOString();
+  st.nodeStatus = normalizeNetworkStatus(st.uplinkAt, z.kind === "gateway" ? "gateway" : "online");
   st.logLines = logLines;
 
   history.appendReading(DATA_DIR, {
@@ -371,7 +636,7 @@ function applyManualReading(zoneId, payload) {
 }
 
 function alarmLevelForState(st) {
-  const alarms = activeAlarmsForState(st);
+  const alarms = activeAlarmsIncludingNetwork(st);
   if (alarms.some((a) => a.severity === "critical")) return "critical";
   if (alarms.some((a) => a.severity === "warning")) return "warning";
   if (alarms.length) return "info";
@@ -379,8 +644,10 @@ function alarmLevelForState(st) {
 }
 
 function buildSnapshotPayload(zoneId) {
-  const z = ZONES.find((x) => x.id === zoneId) || ZONES[0];
+  const z = findZone(zoneId) || ZONES[0];
   const st = store[z.id];
+  const node = findNodeByZone(z.id);
+  const gateway = findGateway(st.gatewayId || node?.gatewayId || GATEWAYS[0]?.id);
   const hist = history.readZoneSeries(DATA_DIR, z.id, 100);
   const merged = history.mergeSeries(hist, st.labels, st.values, 120);
   const temperatureSeries = merged;
@@ -394,8 +661,10 @@ function buildSnapshotPayload(zoneId) {
     dropPct: WATER_RAPID_DROP_PCT,
   });
 
+  const network = networkStatusSummary();
   const siteZones = ZONES.map((zz) => {
     const s = store[zz.id];
+    const zoneNode = findNodeByZone(zz.id);
     return {
       id: zz.id,
       name: zz.name,
@@ -403,11 +672,20 @@ function buildSnapshotPayload(zoneId) {
       mapX: zz.mapX,
       mapY: zz.mapY,
       planPath: planPathForFloor(zz.floor),
+      kind: zz.kind,
+      primaryNodeId: zz.primaryNodeId || zoneNode?.id || null,
       temperatureC: s.lastTemp,
       waterPercent: s.water,
       humidityPercent: s.humidityPct,
       co2Ppm: s.co2Ppm,
       vocIndex: s.vocIndex,
+      lightLux: s.lightLux,
+      flowLmin: s.flowLmin,
+      batteryPercent: s.batteryPercent,
+      rssi: s.rssi,
+      snr: s.snr,
+      uplinkAt: s.uplinkAt,
+      nodeStatus: normalizeNetworkStatus(s.uplinkAt, s.nodeStatus),
       alarmLevel: alarmLevelForState(s),
     };
   });
@@ -422,9 +700,11 @@ function buildSnapshotPayload(zoneId) {
       planPath: planPathForFloor(z.floor),
     },
     facility: {
-      name: "Hub sensori · Livorno",
+      name: "Centrale IoT distribuita · Livorno",
       city: "Livorno",
       zones: ZONES.length,
+      nodes: NODES.length,
+      gateways: GATEWAYS.length,
     },
     floors: FLOORS.map((f) => ({
       id: f.id,
@@ -439,8 +719,25 @@ function buildSnapshotPayload(zoneId) {
       humidityPercent: st.humidityPct,
       co2Ppm: st.co2Ppm,
       vocIndex: st.vocIndex,
+      lightLux: st.lightLux,
+      flowLmin: st.flowLmin,
     },
-    activeAlarms: activeAlarmsForState(st),
+    telemetry: {
+      nodeId: st.nodeId,
+      nodeLabel: st.nodeLabel,
+      gatewayId: st.gatewayId,
+      gatewayName: gateway?.name || st.gatewayId,
+      batteryPercent: st.batteryPercent,
+      rssi: st.rssi,
+      snr: st.snr,
+      uplinkAt: st.uplinkAt,
+      nodeStatus: normalizeNetworkStatus(st.uplinkAt, st.nodeStatus),
+      flowLmin: st.flowLmin,
+      lightLux: st.lightLux,
+      sensors: node?.sensors || [],
+    },
+    network,
+    activeAlarms: activeAlarmsIncludingNetwork(st),
     waterEtaHours: eta.waterEtaHours,
     waterEtaConfidence: eta.waterEtaConfidence,
     waterDepletionRatePctPerHour: eta.waterDepletionRatePctPerHour,
@@ -675,6 +972,8 @@ app.get("/api/zones", limitApiRead, (_req, res) => {
       mapX: x.mapX,
       mapY: x.mapY,
       planPath: planPathForFloor(x.floor),
+      kind: x.kind,
+      primaryNodeId: x.primaryNodeId || null,
     })),
     floors: FLOORS.map((f) => ({
       id: f.id,
@@ -682,6 +981,18 @@ app.get("/api/zones", limitApiRead, (_req, res) => {
       planPath: planPathForFloor(f.id),
     })),
   });
+});
+
+app.get("/api/network/catalog", limitApiRead, (_req, res) => {
+  res.json({
+    gateways: GATEWAYS,
+    zones: ZONES,
+    nodes: NODES,
+  });
+});
+
+app.get("/api/network/status", limitApiRead, (_req, res) => {
+  res.json(networkStatusSummary());
 });
 
 app.get("/api/dashboard/snapshot", limitApiRead, (req, res) => {
@@ -832,55 +1143,19 @@ broadcastSnapshots = () => {
 };
 
 app.post("/api/ingest/reading", limitIngest, ingestAuth, (req, res) => {
-  const q = String(req.body?.zoneId || "").trim();
-  const zoneId = ZONES.some((z) => z.id === q) ? q : "";
-  if (!zoneId) {
-    return res.status(400).json({
-      error: "invalid_zone",
-      zones: ZONES.map((z) => z.id),
-    });
+  const reading = normalizeReadingPayload(req.body || {});
+  if (reading.error) {
+    return res.status(400).json(reading);
   }
-  const tempC = req.body?.temperatureC ?? req.body?.tempC;
-  if (!Number.isFinite(Number(tempC))) {
-    return res.status(400).json({ error: "temperatureC_required" });
-  }
-  const waterPct = req.body?.waterPercent;
-  if (waterPct != null && !Number.isFinite(Number(waterPct))) {
-    return res.status(400).json({ error: "invalid_waterPercent" });
-  }
-  const humidityPct =
-    req.body?.humidityPercent ?? req.body?.humidityPct ?? req.body?.rh;
-  if (humidityPct != null && !Number.isFinite(Number(humidityPct))) {
-    return res.status(400).json({ error: "invalid_humidityPercent" });
-  }
-  const co2Ppm = req.body?.co2Ppm ?? req.body?.co2;
-  if (co2Ppm != null && !Number.isFinite(Number(co2Ppm))) {
-    return res.status(400).json({ error: "invalid_co2Ppm" });
-  }
-  const vocIndex = req.body?.vocIndex ?? req.body?.voc ?? req.body?.iaq;
-  if (vocIndex != null && !Number.isFinite(Number(vocIndex))) {
-    return res.status(400).json({ error: "invalid_vocIndex" });
-  }
-  const source = req.body?.source;
-  applyManualReading(zoneId, {
-    tempC: Number(tempC),
-    waterPct:
-      waterPct === undefined || waterPct === null
-        ? null
-        : Number(waterPct),
-    humidityPct:
-      humidityPct === undefined || humidityPct === null
-        ? null
-        : Number(humidityPct),
-    co2Ppm:
-      co2Ppm === undefined || co2Ppm === null ? null : Number(co2Ppm),
-    vocIndex:
-      vocIndex === undefined || vocIndex === null ? null : Number(vocIndex),
-    source,
-  });
+  applyManualReading(reading.zoneId, reading);
   metrics.ingestAccepted += 1;
   broadcastSnapshots();
-  return res.json({ ok: true, zoneId });
+  return res.json({
+    ok: true,
+    zoneId: reading.zoneId,
+    nodeId: reading.nodeId,
+    gatewayId: reading.gatewayId,
+  });
 });
 
 app.use((err, _req, res, next) => {
@@ -1006,7 +1281,7 @@ server.listen(PORT, () => {
       "  Webhook allarme (acqua + soglie ambientali env_threshold) configurato"
     );
   }
-  console.log("  POST /api/ingest/reading (Arduino / ESP — vedi docs/PROSSIMI_PASSI.md)");
+  console.log("  POST /api/ingest/reading (payload legacy o LoRa-ready)");
   if (!INGEST_SECRET && !API_KEY) {
     logEvent("warn", "ingest_open_warning", {
       msg: "Ingest aperto: imposta INGEST_SECRET o API_KEY in produzione.",

@@ -1,6 +1,6 @@
-# Palestra Dashboard
+# LoRa IoT Supervision Dashboard
 
-Monitoraggio smart per ambienti palestra: frontend React con dashboard real-time e backend Node.js con API REST, storico su file e WebSocket.
+Piattaforma di supervisione per una rete di nodi sensore remoti con comunicazione LoRa, gateway centrale e dashboard web real-time per analisi, storico e allarmi.
 
 ![License](https://img.shields.io/badge/license-Private-6b7280?style=for-the-badge)
 ![React](https://img.shields.io/badge/react-18-61dafb?style=for-the-badge&logo=react&logoColor=111827)
@@ -11,12 +11,11 @@ Monitoraggio smart per ambienti palestra: frontend React con dashboard real-time
 
 ## Panoramica
 
-Questa applicazione nasce per supervisione tecnica e operativa di una palestra, con focus su:
+Questa applicazione è progettata come **centrale di controllo IoT distribuita**:
 
-- temperatura e stato acqua per zona,
-- qualità aria (CO2, VOC, umidita),
-- storico consultabile ed esportabile,
-- integrazione ingest da dispositivi (Arduino / ESP / simulatori).
+- nodi remoti installati sul campo misurano livello, temperatura, umidita, luce, flusso e qualità aria;
+- un gateway centrale raccoglie i payload LoRa e li inoltra al backend;
+- la dashboard React visualizza telemetria live, stato rete, allarmi e storico.
 
 ### Anteprima layout
 
@@ -26,11 +25,23 @@ Questa applicazione nasce per supervisione tecnica e operativa di una palestra, 
 
 ## Funzionalita principali
 
-- Dashboard React con UI moderna e aggiornamenti live.
+- Dashboard React con UI moderna e supervisione real-time.
 - Gateway Node.js/Express con endpoint REST e stream WebSocket.
-- Persistenza storico su file per analisi e report.
-- Modalita auth opzionale per ambienti protetti.
-- Endpoint ingest dedicato per dati da sensori esterni.
+- Catalogo di nodi, gateway e zone monitorate.
+- Storico su file per analisi, report e trend.
+- Allarmi ambientali e allarmi di rete (offline, batteria, segnale).
+- Payload ingest compatibili con simulazione, Arduino/ESP e futuri nodi LoRa reali.
+
+## Architettura
+
+```mermaid
+flowchart LR
+  sensorNodes[SensorNodes] -->|LoRaUplink| loraGateway[LoRaGateway]
+  loraGateway -->|NormalizedPayload| backendHub[BackendHub]
+  backendHub -->|REST_WS| dashboard[SupervisionDashboard]
+  backendHub --> historyStore[HistoryStore]
+  backendHub --> alertEngine[AlertEngine]
+```
 
 ---
 
@@ -73,7 +84,7 @@ npm run stack
 Avvia:
 
 - frontend su `http://localhost:3000`
-- backend su `http://localhost:4000`
+- backend/gateway su `http://localhost:4000`
 
 ### 3) Avvio frontend standalone (mock/simulato)
 
@@ -102,30 +113,52 @@ Note utili:
 
 ---
 
+## Rete prototipo
+
+Configurazione iniziale prevista:
+
+- `gw-livorno-01`: gateway LoRa centrale
+- `node-water-01`: livello/temperatura serbatoio tecnico
+- `node-env-01`: temperatura/umidita/luce spogliatoi
+- `node-flow-01`: portata linea idrica
+- `node-air-01`: qualità aria sala pesi
+- `node-light-01`: luce/temperatura area cardio
+
 ## API Rapide
 
-### Ingest sensori
+### Ingest sensori / gateway
 
 `POST /api/ingest/reading`
 
-Esempio payload:
+Esempio payload LoRa-ready:
 
 ```json
 {
-  "zoneId": "docce-p1",
-  "temperatureC": 30.5,
-  "waterPercent": 68,
-  "humidityPercent": 55,
-  "co2Ppm": 720,
-  "vocIndex": 120,
-  "source": "arduino"
+  "nodeId": "node-air-01",
+  "zoneId": "sala-pesi-aria",
+  "gatewayId": "gw-livorno-01",
+  "timestamp": "2026-04-15T19:30:00Z",
+  "source": "lora-gateway",
+  "batteryPercent": 87,
+  "rssi": -112,
+  "snr": 7.2,
+  "sensors": {
+    "temperatureC": 24.8,
+    "humidityPercent": 58,
+    "co2Ppm": 720,
+    "vocIndex": 120
+  }
 }
 ```
+
+Compatibilita mantenuta anche con il payload legacy basato su `zoneId` + `temperatureC`.
 
 ### Storico
 
 - `GET /api/history?zoneId=...&limit=200&from=&to=`
 - `GET /api/report/csv?zoneId=...`
+- `GET /api/network/catalog`
+- `GET /api/network/status`
 
 ---
 
@@ -143,10 +176,11 @@ Build frontend generata in `build/`.
 
 ## Roadmap Prototype
 
-- hardening sicurezza e gestione segreti,
+- integrazione gateway LoRa fisico e nodi hardware reali,
 - storage storico su database (oltre file system),
-- alerting automatico su soglie critiche,
-- dashboard ruoli/permessi multi-utente.
+- provisioning remoto dei nodi e configurazione soglie,
+- dashboard ruoli/permessi multi-utente,
+- alerting automatico verso email, webhook o sistemi OT.
 
 ---
 

@@ -16,13 +16,13 @@ export default function ZoneSelector({
         <div>
           <h2 className="zone-selector__title">Zona impianto</h2>
           <p className="zone-selector__hint mono">
-            Seleziona il nodo da monitorare (scalabilità multi-zona)
+            Seleziona il punto monitorato e il relativo nodo remoto
           </p>
         </div>
       </div>
       <div className="zone-selector__controls">
         <label className="zone-selector__label mono" htmlFor="zone-select">
-          ZONE_ID
+          ZONE_OR_NODE
         </label>
         <select
           id="zone-select"

@@ -1,49 +1,134 @@
 /**
- * Zone operative + coordinate % sulla planimetria del piano (0–100).
- * `floor` deve combaciare con un id in FLOORS.
+ * Catalogo dominio IoT:
+ * - zone = punto fisico mostrato in dashboard
+ * - nodes = nodo remoto installato sul campo
+ * - gateways = ricevitore centrale LoRa
  */
-const ZONES = [
+const GATEWAYS = [
   {
-    id: "hub-centrale",
-    name: "Centrale tecnica · UPS",
+    id: "gw-livorno-01",
+    name: "Gateway LoRa centrale",
     floor: "T",
     mapX: 50,
     mapY: 50,
+    location: "Tetto / centrale tecnica",
+    uplink: "LoRa",
+    backhaul: "Ethernet",
+  },
+];
+
+const ZONES = [
+  {
+    id: "hub-centrale",
+    name: "Centrale tecnica · Gateway / UPS",
+    floor: "T",
+    mapX: 50,
+    mapY: 50,
+    kind: "gateway",
+    primaryNodeId: "gw-livorno-01",
   },
   {
-    id: "docce-p1",
-    name: "Docce · Spogliatoi piano -1",
+    id: "serbatoio-idrico",
+    name: "Serbatoio tecnico · livello / temperatura",
     floor: "-1",
-    mapX: 28,
-    mapY: 42,
+    mapX: 26,
+    mapY: 44,
+    kind: "water",
+    primaryNodeId: "node-water-01",
   },
   {
-    id: "docce-p2",
-    name: "Docce · Area corsi piano 2",
-    floor: "2",
-    mapX: 72,
-    mapY: 38,
+    id: "spogliatoi-ambientale",
+    name: "Spogliatoi · temperatura / umidita / luce",
+    floor: "-1",
+    mapX: 71,
+    mapY: 39,
+    kind: "environment",
+    primaryNodeId: "node-env-01",
   },
   {
-    id: "pesi-nord",
-    name: "Sala pesi · Ala nord",
+    id: "linea-flusso",
+    name: "Linea idrica · portata / pressione",
+    floor: "0",
+    mapX: 46,
+    mapY: 63,
+    kind: "flow",
+    primaryNodeId: "node-flow-01",
+  },
+  {
+    id: "sala-pesi-aria",
+    name: "Sala pesi · qualita aria",
     floor: "1",
-    mapX: 22,
-    mapY: 55,
+    mapX: 24,
+    mapY: 56,
+    kind: "air-quality",
+    primaryNodeId: "node-air-01",
   },
   {
-    id: "cardio",
-    name: "Cardio · Panoramica",
+    id: "cardio-luce",
+    name: "Cardio · luce / temperatura",
     floor: "1",
     mapX: 78,
     mapY: 48,
+    kind: "light-climate",
+    primaryNodeId: "node-light-01",
+  },
+];
+
+const NODES = [
+  {
+    id: "node-water-01",
+    label: "Nodo serbatoio",
+    zoneId: "serbatoio-idrico",
+    gatewayId: "gw-livorno-01",
+    floor: "-1",
+    mapX: 26,
+    mapY: 44,
+    hardware: "ESP32 + LoRa",
+    sensors: ["levelPercent", "temperatureC"],
   },
   {
-    id: "wellness",
-    name: "Wellness · Vasche tecniche",
+    id: "node-env-01",
+    label: "Nodo spogliatoi",
+    zoneId: "spogliatoi-ambientale",
+    gatewayId: "gw-livorno-01",
+    floor: "-1",
+    mapX: 71,
+    mapY: 39,
+    hardware: "STM32 + LoRa",
+    sensors: ["temperatureC", "humidityPercent", "lightLux"],
+  },
+  {
+    id: "node-flow-01",
+    label: "Nodo flusso linea",
+    zoneId: "linea-flusso",
+    gatewayId: "gw-livorno-01",
     floor: "0",
-    mapX: 48,
-    mapY: 62,
+    mapX: 46,
+    mapY: 63,
+    hardware: "ESP32 + LoRa",
+    sensors: ["flowLmin", "levelPercent", "temperatureC"],
+  },
+  {
+    id: "node-air-01",
+    label: "Nodo qualita aria",
+    zoneId: "sala-pesi-aria",
+    gatewayId: "gw-livorno-01",
+    floor: "1",
+    mapX: 24,
+    mapY: 56,
+    hardware: "ESP32 + LoRa",
+    sensors: ["temperatureC", "humidityPercent", "co2Ppm", "vocIndex"],
+  },
+  {
+    id: "node-light-01",
+    label: "Nodo cardio",
+    zoneId: "cardio-luce",
+    gatewayId: "gw-livorno-01",
+    floor: "1",
+    mapX: 78,
+    mapY: 48,
+    hardware: "STM32 + LoRa",
+    sensors: ["temperatureC", "lightLux", "humidityPercent"],
   },
 ];
 
@@ -61,4 +146,30 @@ function planPathForFloor(floorId) {
   return `/plans/piano-${slug}.svg`;
 }
 
-module.exports = { ZONES, FLOORS, planPathForFloor };
+function findZone(zoneId) {
+  return ZONES.find((z) => z.id === zoneId) || null;
+}
+
+function findNode(nodeId) {
+  return NODES.find((n) => n.id === nodeId) || null;
+}
+
+function findNodeByZone(zoneId) {
+  return NODES.find((n) => n.zoneId === zoneId) || null;
+}
+
+function findGateway(gatewayId) {
+  return GATEWAYS.find((g) => g.id === gatewayId) || null;
+}
+
+module.exports = {
+  GATEWAYS,
+  ZONES,
+  NODES,
+  FLOORS,
+  planPathForFloor,
+  findZone,
+  findNode,
+  findNodeByZone,
+  findGateway,
+};

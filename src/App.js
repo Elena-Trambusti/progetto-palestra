@@ -12,6 +12,7 @@ import AlarmBar from "./components/AlarmBar";
 import FloorPlanMap from "./components/FloorPlanMap";
 import MainTabs from "./components/MainTabs";
 import HistoryReportPanel from "./components/HistoryReportPanel";
+import NetworkStatusPanel from "./components/NetworkStatusPanel";
 import { MOCK_ZONES } from "./services/mockSensors";
 import { useDashboardSensors } from "./hooks/useDashboardSensors";
 import { getStoredSessionToken, logoutFromGateway } from "./services/sensorApi";
@@ -36,8 +37,13 @@ export default function App() {
     humidityPercent,
     co2Ppm,
     vocIndex,
+    lightLux,
+    flowLmin,
     activeAlarms,
     siteZones,
+    networkNodes,
+    networkSummary,
+    telemetry,
     floorsCatalog,
     reportSamples,
     waterEtaHours,
@@ -108,6 +114,8 @@ export default function App() {
       <div
         className={`dashboard-grid${
           mainTab === "history" ? " dashboard-grid--history" : ""
+        }${
+          mainTab === "network" ? " dashboard-grid--network" : ""
         }${
           mainTab === "dashboard" && showFloorPlan
             ? " dashboard-grid--floorplan"
@@ -188,6 +196,8 @@ export default function App() {
                 humidityPercent={humidityPercent}
                 co2Ppm={co2Ppm}
                 vocIndex={vocIndex}
+                lightLux={lightLux}
+                flowLmin={flowLmin}
                 loading={dashboardLoading}
               />
             </div>
@@ -195,7 +205,7 @@ export default function App() {
               <HackerTerminal lines={logs} />
             </div>
           </>
-        ) : (
+        ) : mainTab === "history" ? (
           <>
             <div className="area-zones">
               <ZoneSelector
@@ -212,6 +222,26 @@ export default function App() {
                 useApi={useApi}
                 liveSamples={reportSamples}
                 loadingParent={dashboardLoading}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="area-zones">
+              <ZoneSelector
+                zones={zones}
+                value={zoneId}
+                onChange={setZoneId}
+                disabled={Boolean(useApi && zonesLoading)}
+                errorText={useApi ? zonesError : null}
+              />
+            </div>
+            <div className="area-network">
+              <NetworkStatusPanel
+                telemetry={telemetry}
+                networkSummary={networkSummary}
+                networkNodes={networkNodes}
+                loading={dashboardLoading}
               />
             </div>
           </>

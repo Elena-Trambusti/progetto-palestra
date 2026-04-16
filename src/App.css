@@ -99,6 +99,11 @@
   min-height: 480px;
 }
 
+.area-network {
+  grid-area: network;
+  min-height: 520px;
+}
+
 .dashboard-grid--history {
   grid-template-columns: 1fr;
   grid-template-areas:
@@ -107,6 +112,16 @@
     "alarms"
     "zones"
     "history";
+}
+
+.dashboard-grid--network {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "tabs"
+    "alarms"
+    "zones"
+    "network";
 }
 
 @media (min-width: 960px) {
@@ -148,8 +163,22 @@
       "history";
   }
 
+  .dashboard-grid--network {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "header"
+      "tabs"
+      "alarms"
+      "zones"
+      "network";
+  }
+
   .dashboard-grid--history .area-history {
     min-height: 560px;
+  }
+
+  .dashboard-grid--network .area-network {
+    min-height: 640px;
   }
 }
 

@@ -24,7 +24,7 @@ export default function Header({
         <div className="header__title-wrap">
           <Activity className="header__icon" aria-hidden />
           <h1 className="header__title mono">
-            SISTEMA RILEVAZIONE PALESTRA
+            CENTRALE SUPERVISIONE IOT
           </h1>
         </div>
         <div className="header__badges">
@@ -55,7 +55,7 @@ export default function Header({
       </div>
       <p className="header__subtitle">
         {facilityLine ? `${facilityLine} · ` : ""}
-        Monitoraggio ambientale · docce · riserva idrica
+        Nodi remoti LoRa · gateway centrale · telemetria distribuita
       </p>
     </header>
   );

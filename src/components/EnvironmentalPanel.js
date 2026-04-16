@@ -1,5 +1,5 @@
 import React from "react";
-import { Droplets, Wind, Activity } from "lucide-react";
+import { Droplets, Wind, Activity, SunMedium, Waves } from "lucide-react";
 import "./EnvironmentalPanel.css";
 
 function fmt(v, digits = 0) {
@@ -11,6 +11,8 @@ export default function EnvironmentalPanel({
   humidityPercent,
   co2Ppm,
   vocIndex,
+  lightLux,
+  flowLmin,
   loading,
 }) {
   return (
@@ -24,9 +26,9 @@ export default function EnvironmentalPanel({
         <Wind className="env-panel__icon" aria-hidden />
         <div>
           <h2 id="env-panel-heading" className="env-panel__title">
-            Sensori ambientali
+            Telemetria sensori
           </h2>
-          <p className="env-panel__hint mono">Umidità · CO₂ · qualità aria (VOC)</p>
+          <p className="env-panel__hint mono">Umidità · CO₂ · VOC · luce · flusso</p>
         </div>
       </div>
       <div className="env-panel__grid">
@@ -45,6 +47,18 @@ export default function EnvironmentalPanel({
           <Wind className="env-panel__tile-icon" aria-hidden />
           <span className="env-panel__label">Indice VOC</span>
           <strong className="env-panel__value">{fmt(vocIndex, 0)}</strong>
+        </div>
+        <div className="env-panel__tile mono">
+          <SunMedium className="env-panel__tile-icon" aria-hidden />
+          <span className="env-panel__label">Luce</span>
+          <strong className="env-panel__value">{fmt(lightLux, 0)}</strong>
+          <span className="env-panel__unit">lux</span>
+        </div>
+        <div className="env-panel__tile mono">
+          <Waves className="env-panel__tile-icon" aria-hidden />
+          <span className="env-panel__label">Flusso</span>
+          <strong className="env-panel__value">{fmt(flowLmin, 1)}</strong>
+          <span className="env-panel__unit">L/min</span>
         </div>
       </div>
     </section>
