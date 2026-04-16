@@ -152,6 +152,8 @@ export function initMockSnapshot(zoneId) {
     gatewayId: node?.gatewayId || "gw-livorno-01",
     uplinkAt: new Date().toISOString(),
     nodeStatus: zone.id === "hub-centrale" ? "gateway" : "online",
+    waterRapidDrop: false,
+    waterRapidDropDelta: null,
   };
 }
 
@@ -227,6 +229,65 @@ export function computeMockActiveAlarms(st) {
       message: `Indice VOC elevato (${Math.round(voc)})`,
       value: voc,
     });
+  }
+  if (Number.isFinite(st.water)) {
+    if (st.water <= 12) {
+      alarms.push({
+        code: "water_critical",
+        severity: "critical",
+        message: `Livello critico (${Math.round(st.water)} %)`,
+        value: st.water,
+      });
+    } else if (st.water <= 25) {
+      alarms.push({
+        code: "water_low",
+        severity: "warning",
+        message: `Livello basso (${Math.round(st.water)} %)`,
+        value: st.water,
+      });
+    }
+  }
+  if (st.waterRapidDrop) {
+    alarms.push({
+      code: "water_rapid_drop",
+      severity: "critical",
+      message: `Calo rapido livello acqua (${Math.round(st.waterRapidDropDelta || 0)} %)`,
+      value: st.waterRapidDropDelta ?? null,
+    });
+  }
+  if (Number.isFinite(st.flowLmin)) {
+    if (st.flowLmin >= 22) {
+      alarms.push({
+        code: "flow_high",
+        severity: "warning",
+        message: `Flusso elevato (${st.flowLmin.toFixed(1)} L/min)`,
+        value: st.flowLmin,
+      });
+    } else if (st.flowLmin <= 1.5) {
+      alarms.push({
+        code: "flow_low",
+        severity: "info",
+        message: `Flusso basso (${st.flowLmin.toFixed(1)} L/min)`,
+        value: st.flowLmin,
+      });
+    }
+  }
+  if (Number.isFinite(st.lightLux)) {
+    if (st.lightLux >= 1200) {
+      alarms.push({
+        code: "light_high",
+        severity: "info",
+        message: `Luce elevata (${Math.round(st.lightLux)} lux)`,
+        value: st.lightLux,
+      });
+    } else if (st.lightLux <= 80) {
+      alarms.push({
+        code: "light_low",
+        severity: "info",
+        message: `Luce bassa (${Math.round(st.lightLux)} lux)`,
+        value: st.lightLux,
+      });
+    }
   }
   if (Number.isFinite(st.batteryPercent) && st.batteryPercent <= 25) {
     alarms.push({
@@ -307,6 +368,9 @@ export function driftMockSnapshot(prev) {
   const roll = Math.random();
   const nextStatus = roll < 0.035 ? "offline" : roll < 0.12 ? "stale" : prev.nodeStatus || "online";
   const secondsAgo = nextStatus === "offline" ? 520 : nextStatus === "stale" ? 110 : 8;
+  const waterRapidDrop = Number.isFinite(prev.water) && Number.isFinite(nextWater)
+    ? prev.water - nextWater >= 10
+    : false;
   return {
     ...prev,
     lastTemp: nextTemp,
@@ -321,6 +385,8 @@ export function driftMockSnapshot(prev) {
     snr: Number(nextSnr.toFixed(1)),
     nodeStatus: nextStatus,
     uplinkAt: new Date(Date.now() - secondsAgo * 1000).toISOString(),
+    waterRapidDrop,
+    waterRapidDropDelta: waterRapidDrop ? prev.water - nextWater : null,
   };
 }
 
@@ -393,6 +459,9 @@ export function generateMockSensorTick(
   const packetRoll = Math.random();
   const nodeStatus = packetRoll < 0.04 ? "offline" : packetRoll < 0.14 ? "stale" : "online";
   const uplinkLagSec = nodeStatus === "offline" ? 620 : nodeStatus === "stale" ? 95 : 6;
+  const waterRapidDrop = Number.isFinite(prev.water) && Number.isFinite(nextWater)
+    ? prev.water - nextWater >= 12
+    : false;
 
   const labels = [...prev.labels, t];
   const values = [...prev.values, nextTemp];
@@ -418,6 +487,8 @@ export function generateMockSensorTick(
     snr: Number(nextSnr.toFixed(1)),
     uplinkAt: new Date(Date.now() - uplinkLagSec * 1000).toISOString(),
     nodeStatus,
+    waterRapidDrop,
+    waterRapidDropDelta: waterRapidDrop ? prev.water - nextWater : null,
     logLine,
   };
 }

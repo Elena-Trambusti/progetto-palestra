@@ -157,6 +157,8 @@ function createInitialState(zoneId) {
     gatewayId: node?.gatewayId || GATEWAYS[0]?.id || "gw-livorno-01",
     uplinkAt: new Date().toISOString(),
     nodeStatus: zone.kind === "gateway" ? "gateway" : "online",
+    waterRapidDrop: false,
+    waterRapidDropDelta: null,
     logLines: [
       `[INFO] ${formatTime(new Date())} · Nodo ${node?.label || zoneId} online · uplink LoRa agganciato`,
     ],
@@ -475,6 +477,8 @@ function tickZone(zoneId) {
     windowMs: WATER_RAPID_WINDOW_MS,
     dropPct: WATER_RAPID_DROP_PCT,
   });
+  st.waterRapidDrop = rapid.waterRapidDrop;
+  st.waterRapidDropDelta = rapid.waterRapidDropDelta;
   maybeNotifyWaterRapidDrop({
     zoneId,
     zoneName: z.name,
@@ -625,6 +629,8 @@ function applyManualReading(zoneId, payload) {
     windowMs: WATER_RAPID_WINDOW_MS,
     dropPct: WATER_RAPID_DROP_PCT,
   });
+  st.waterRapidDrop = rapid.waterRapidDrop;
+  st.waterRapidDropDelta = rapid.waterRapidDropDelta;
   maybeNotifyWaterRapidDrop({
     zoneId,
     zoneName: z.name,
