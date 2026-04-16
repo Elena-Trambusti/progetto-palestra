@@ -3,6 +3,7 @@ server/node_modules/
 server/data/*
 !server/data/.gitkeep
 build/
+.cursor/
 .DS_Store
 .env.local
 .env.development.local
