@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: palestra-backend
+    runtime: node
+    rootDir: server
+    plan: free
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: REQUIRE_AUTH
+        value: "true"
+      - key: AUTH_PASSWORD
+        generateValue: true
+      - key: INGEST_SECRET
+        generateValue: true
+      - key: TRUST_PROXY
+        value: "true"
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DATA_DIR
+        value: /var/data
+    disks:
+      - name: palestra-data
+        mountPath: /var/data
+        sizeGB: 1
+
+  - type: web
+    name: palestra-frontend
+    runtime: static
+    rootDir: .
+    plan: free
+    autoDeploy: true
+    buildCommand: npm install && npm run build
+    staticPublishPath: build
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: REACT_APP_SENSOR_API_URL
+        sync: false
+      - key: REACT_APP_SENSOR_WS_URL
+        sync: false
+      - key: REACT_APP_POLL_INTERVAL_MS
+        value: "3000"

@@ -228,3 +228,32 @@ Build frontend generata in `build/`.
 
 Progetto sviluppato da **Elena Trambusti**.  
 Per evoluzioni del prototipo, apri una issue o una pull request.
+
+---
+
+## Deploy su Render (Blueprint)
+
+Il repository include un blueprint `render.yaml` che crea:
+
+- `palestra-backend` (Node/Express + WebSocket);
+- `palestra-frontend` (Static Site React).
+
+### Procedura
+
+1. Push del repository su GitHub.
+2. In Render: **New + > Blueprint** e collega il repo.
+3. Conferma la creazione dei 2 servizi dal file `render.yaml`.
+4. Dopo il primo deploy:
+   - apri il servizio `palestra-backend` e copia il suo URL pubblico;
+   - vai su `palestra-frontend` > Environment e imposta:
+     - `REACT_APP_SENSOR_API_URL=https://<backend>.onrender.com`
+     - `REACT_APP_SENSOR_WS_URL=wss://<backend>.onrender.com/ws`
+   - salva e rilancia il deploy del frontend.
+5. Torna su `palestra-backend` e imposta `CORS_ORIGIN` con l'URL del frontend:
+   - `https://<frontend>.onrender.com`
+
+### Note importanti
+
+- `AUTH_PASSWORD` e `INGEST_SECRET` vengono generati automaticamente al deploy.
+- Lo storico persiste su disco Render (`DATA_DIR=/var/data`).
+- Healthcheck backend: `/health`.
