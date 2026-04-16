@@ -170,6 +170,10 @@ const store = Object.fromEntries(ZONES.map((z) => [z.id, createInitialState(z.id
 
 const SENSORS = NODES.map((node) => node.label);
 
+const EVENT_BUFFER_MAX = Number(process.env.NETWORK_EVENT_BUFFER_MAX) || 250;
+/** @type {Array<{ iso: string, t: number, type: string, severity: string, nodeId?: string, nodeLabel?: string, zoneId?: string, zoneName?: string, message: string, data?: any }>} */
+const networkEvents = [];
+
 function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -186,6 +190,43 @@ function normalizeNetworkStatus(lastUplinkIso, fallback = "online") {
   if (ageMs > 4 * 60 * 1000) return "offline";
   if (ageMs > 75 * 1000) return "stale";
   return fallback === "gateway" ? "gateway" : "online";
+}
+
+function pushNetworkEvent(evt) {
+  const iso = new Date().toISOString();
+  const row = {
+    iso,
+    t: Date.now(),
+    ...evt,
+  };
+  networkEvents.push(row);
+  if (networkEvents.length > EVENT_BUFFER_MAX) {
+    networkEvents.splice(0, networkEvents.length - EVENT_BUFFER_MAX);
+  }
+}
+
+function maybeEmitNodeStatusTransition(zoneId, prevStatus, nextStatus) {
+  if (!prevStatus || !nextStatus) return;
+  if (prevStatus === nextStatus) return;
+  const zone = findZone(zoneId);
+  const node = findNodeByZone(zoneId);
+  const label = node?.label || zone?.name || zoneId;
+  const severity =
+    nextStatus === "offline"
+      ? "critical"
+      : nextStatus === "stale"
+        ? "warning"
+        : "info";
+  pushNetworkEvent({
+    type: "node_status",
+    severity,
+    nodeId: node?.id,
+    nodeLabel: label,
+    zoneId,
+    zoneName: zone?.name || zoneId,
+    message: `Nodo ${label}: ${prevStatus} → ${nextStatus}`,
+    data: { prevStatus, nextStatus },
+  });
 }
 
 function networkAlarmsForState(st) {
@@ -270,6 +311,7 @@ function networkStatusSummary() {
       offline: nodes.filter((node) => node.status === "offline").length,
     },
     nodes,
+    events: networkEvents.slice(-80),
   };
 }
 
@@ -441,7 +483,9 @@ function tickZone(zoneId) {
   st.nodeLabel = node?.label || st.nodeLabel;
   st.gatewayId = node?.gatewayId || st.gatewayId;
   st.uplinkAt = new Date(Date.now() - uplinkLagSec * 1000).toISOString();
+  const prevStatus = st.nodeStatus;
   st.nodeStatus = normalizeNetworkStatus(st.uplinkAt, nextNodeStatus);
+  maybeEmitNodeStatusTransition(zoneId, prevStatus, st.nodeStatus);
   st.logLines = logLines;
 
   history.appendReading(DATA_DIR, {
@@ -596,7 +640,12 @@ function applyManualReading(zoneId, payload) {
   st.nodeLabel = nodeLabel || st.nodeLabel;
   st.gatewayId = gatewayId || st.gatewayId;
   st.uplinkAt = timestamp || new Date().toISOString();
-  st.nodeStatus = normalizeNetworkStatus(st.uplinkAt, z.kind === "gateway" ? "gateway" : "online");
+  const prevStatus = st.nodeStatus;
+  st.nodeStatus = normalizeNetworkStatus(
+    st.uplinkAt,
+    z.kind === "gateway" ? "gateway" : "online"
+  );
+  maybeEmitNodeStatusTransition(zoneId, prevStatus, st.nodeStatus);
   st.logLines = logLines;
 
   history.appendReading(DATA_DIR, {
@@ -1006,6 +1055,14 @@ app.get("/api/network/catalog", limitApiRead, (_req, res) => {
 
 app.get("/api/network/status", limitApiRead, (_req, res) => {
   res.json(networkStatusSummary());
+});
+
+app.get("/api/network/events", limitApiRead, (req, res) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 120));
+  res.json({
+    limit,
+    events: networkEvents.slice(-limit),
+  });
 });
 
 app.get("/api/dashboard/snapshot", limitApiRead, (req, res) => {

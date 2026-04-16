@@ -44,6 +44,7 @@ export default function App() {
     siteZones,
     networkNodes,
     networkSummary,
+    networkEvents,
     telemetry,
     floorsCatalog,
     reportSamples,
@@ -244,6 +245,7 @@ export default function App() {
                 telemetry={telemetry}
                 networkSummary={networkSummary}
                 networkNodes={networkNodes}
+                networkEvents={networkEvents}
                 loading={dashboardLoading}
               />
             </div>

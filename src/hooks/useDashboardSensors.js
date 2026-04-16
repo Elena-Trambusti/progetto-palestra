@@ -110,6 +110,7 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
     gateway: MOCK_GATEWAYS[0] || null,
     totals: { nodes: MOCK_NODES.length, online: MOCK_NODES.length, stale: 0, offline: 0 },
   });
+  const [networkEvents, setNetworkEvents] = useState([]);
   const [telemetry, setTelemetry] = useState({
     nodeId: "",
     nodeLabel: "",
@@ -176,6 +177,7 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
         gateway: snap.network?.gateway || null,
         totals: snap.network?.totals || null,
       });
+      setNetworkEvents(Array.isArray(snap.network?.events) ? snap.network.events : []);
       setTelemetry(snap.telemetry || {});
       if (snap.floors?.length) {
         setFloorsCatalog(snap.floors);
@@ -356,6 +358,19 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
         offline: nodes.filter((node) => node.status === "offline").length,
       },
     });
+    const nowIso = new Date().toISOString();
+    setNetworkEvents((prev) =>
+      [
+        ...prev,
+        {
+          iso: nowIso,
+          t: Date.now(),
+          type: "tick",
+          severity: "info",
+          message: `Simulazione: uplink aggiornati (${zoneId})`,
+        },
+      ].slice(-80)
+    );
     setTelemetry({
       nodeId: curSt.nodeId,
       nodeLabel: curSt.nodeLabel,
@@ -464,6 +479,7 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
         offline: nodes.filter((node) => node.status === "offline").length,
       },
     });
+    setNetworkEvents((prev) => prev.slice(-80));
     setTelemetry({
       nodeId: s.nodeId,
       nodeLabel: s.nodeLabel,
@@ -617,6 +633,7 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
     siteZones,
     networkNodes,
     networkSummary,
+    networkEvents,
     telemetry,
     floorsCatalog,
     reportSamples,

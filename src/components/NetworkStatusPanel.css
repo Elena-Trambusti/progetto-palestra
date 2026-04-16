@@ -103,6 +103,104 @@
   gap: 0.7rem;
 }
 
+.network-panel__controls {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+  margin: 0.8rem 0 0.95rem;
+}
+
+@media (min-width: 860px) {
+  .network-panel__controls {
+    grid-template-columns: 1.4fr 0.7fr 0.9fr;
+    align-items: center;
+  }
+}
+
+.network-panel__search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.52);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  color: #e2e8f0;
+}
+
+.network-panel__search-input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: #e2e8f0;
+  font-size: 0.82rem;
+}
+
+.network-panel__select {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.52);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+  font-size: 0.82rem;
+}
+
+.network-panel__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.network-panel__timeline {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.network-panel__timeline-title {
+  margin: 0 0 0.5rem;
+  color: rgba(226, 232, 240, 0.92);
+  font-size: 0.75rem;
+}
+
+.network-panel__timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.network-panel__evt {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 0.7rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  font-size: 0.72rem;
+  color: rgba(191, 219, 254, 0.9);
+}
+
+.network-panel__evt--critical {
+  border-color: rgba(248, 113, 113, 0.22);
+}
+
+.network-panel__evt--warning {
+  border-color: rgba(250, 204, 21, 0.22);
+}
+
+.network-panel__evt--info {
+  border-color: rgba(96, 165, 250, 0.18);
+}
+
+.network-panel__evt-time {
+  color: rgba(148, 163, 184, 0.92);
+}
+
 .network-panel__node {
   padding: 0.8rem 0.9rem;
   border-radius: 12px;
