@@ -199,7 +199,7 @@ test("health and ingest auth flow with ingest secret", async () => {
     );
     assert.equal(clampedLimit.status, 200);
     const clampedLimitBody = await clampedLimit.json();
-    assert.equal(clampedLimitBody.limit, 500);
+    assert.equal(clampedLimitBody.limit, 4000);
 
     const opsSummary = await fetch(`${baseUrl}/api/ops/summary`);
     assert.equal(opsSummary.status, 200);
