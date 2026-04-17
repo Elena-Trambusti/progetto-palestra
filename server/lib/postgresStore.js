@@ -848,6 +848,7 @@ module.exports = {
   withClient,
   normalizeDevEui,
   uplinkStatus,
+  thresholdFlag,
   HEARTBEAT_OFFLINE_MS,
   UPLINK_STALE_MS,
   listDistinctLocations,

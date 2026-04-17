@@ -9,6 +9,7 @@ const {
   findSensorByDevEui,
   insertMeasurement,
 } = require("./postgresStore");
+const { maybeNotifyThresholdAlarm } = require("./telegram");
 
 /**
  * Converte il timestamp uplink in un istante UTC affidabile.
@@ -367,6 +368,11 @@ async function ingestTtnWebhook(body) {
   } catch (err) {
     return databaseFailureResponse(err, "insertMeasurement");
   }
+
+  const numericValue = Number(value);
+  void maybeNotifyThresholdAlarm(sensor, numericValue).catch((err) => {
+    console.warn("[telegram]", err && err.message ? err.message : err);
+  });
 
   return {
     ok: true,
