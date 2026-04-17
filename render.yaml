@@ -6,7 +6,8 @@ services:
     rootDir: .
     plan: free
     autoDeploy: true
-    buildCommand: npm install --no-audit --no-fund && npm install --prefix server --no-audit --no-fund && NODE_OPTIONS="--max-old-space-size=3072" npm run build
+    # Un solo comando: niente && multilinea spezzato nel pannello Render (quello dava "npm help" e exit 1).
+    buildCommand: bash scripts/render-build.sh
     startCommand: npm start
     healthCheckPath: /health
     envVars:
