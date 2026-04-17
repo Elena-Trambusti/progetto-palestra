@@ -1333,7 +1333,16 @@ app.get("/api/history", limitApiRead, async (req, res) => {
     const { zoneId } = zone;
     const limit = Math.min(4000, Math.max(1, Number(req.query.limit) || 200));
     const samples = await pgStore.historySamplesForLocation(zoneId, limit, range);
-    return res.json({ zoneId, nodeId: null, limit, points: [], samples });
+    const sensorsCatalog =
+      zoneId && !zone.empty ? await pgStore.listSensorsForLocation(zoneId) : [];
+    return res.json({
+      zoneId,
+      nodeId: null,
+      limit,
+      points: [],
+      samples,
+      sensorsCatalog,
+    });
   }
 
   const zone = resolveZoneQuery(req.query.zoneId);
@@ -1349,7 +1358,14 @@ app.get("/api/history", limitApiRead, async (req, res) => {
   const samples = nodeId
     ? history.readNodeHistoryPoints(DATA_DIR, nodeId, limit, range)
     : history.readZoneHistoryPoints(DATA_DIR, zoneId, limit, range);
-  res.json({ zoneId, nodeId: nodeId || null, limit, points, samples });
+  res.json({
+    zoneId,
+    nodeId: nodeId || null,
+    limit,
+    points,
+    samples,
+    sensorsCatalog: [],
+  });
 });
 
 app.get("/api/report/csv", limitReport, async (req, res) => {

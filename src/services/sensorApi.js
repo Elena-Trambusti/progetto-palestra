@@ -299,7 +299,10 @@ export async function fetchHistorySamples(zoneId, limit = 200, from = "", to = "
   if (to) q.set("to", to);
   const res = await sensorFetch(`/api/history?${q.toString()}`);
   const json = await handleJsonResponse(res);
-  return Array.isArray(json.samples) ? json.samples : [];
+  return {
+    samples: Array.isArray(json.samples) ? json.samples : [],
+    sensorsCatalog: Array.isArray(json.sensorsCatalog) ? json.sensorsCatalog : [],
+  };
 }
 
 export async function fetchNetworkEvents(limit = 500) {

@@ -183,6 +183,21 @@ async function listSensorsAll() {
   });
 }
 
+/** Catalogo sensori di una zona (location) per report PDF e confronti soglie. */
+async function listSensorsForLocation(location) {
+  const loc = String(location || "").trim();
+  if (!loc) return [];
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT dev_eui AS "devEui", name, type, location,
+              min_threshold AS "minThreshold", max_threshold AS "maxThreshold"
+       FROM sensors WHERE location = $1 ORDER BY name ASC`,
+      [loc]
+    );
+    return r.rows;
+  });
+}
+
 async function insertSensor(row) {
   const dev = normalizeDevEui(row.devEui);
   if (!dev) {
@@ -426,6 +441,9 @@ async function historySamplesForLocation(location, limit, range) {
               m.value AS value,
               s.type AS type,
               s.name AS name,
+              s.dev_eui AS "devEui",
+              s.min_threshold AS "minThreshold",
+              s.max_threshold AS "maxThreshold",
               m.rssi, m.snr, m.battery
        FROM measurements m
        JOIN sensors s ON s.id = m.sensor_id
@@ -444,6 +462,9 @@ async function historySamplesForLocation(location, limit, range) {
       value: Number(row.value),
       sensorType: row.type,
       sensorName: row.name,
+      devEui: row.devEui != null ? String(row.devEui).toUpperCase() : "",
+      minThreshold: row.minThreshold != null ? Number(row.minThreshold) : null,
+      maxThreshold: row.maxThreshold != null ? Number(row.maxThreshold) : null,
       humidity: null,
       co2: null,
       voc: null,
@@ -831,6 +852,7 @@ module.exports = {
   UPLINK_STALE_MS,
   listDistinctLocations,
   listSensorsAll,
+  listSensorsForLocation,
   insertSensor,
   updateSensor,
   deleteSensor,

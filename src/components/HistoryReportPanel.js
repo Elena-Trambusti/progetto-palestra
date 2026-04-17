@@ -93,7 +93,7 @@ export default function HistoryReportPanel({
     setLoading(true);
     setErr(null);
     try {
-      const rows = await fetchHistorySamples(zoneId, 400, from, to);
+      const { samples: rows } = await fetchHistorySamples(zoneId, 400, from, to);
       setFetched(rows);
     } catch (e) {
       setErr(toUserErrorMessage(e));
@@ -173,12 +173,14 @@ export default function HistoryReportPanel({
       const period = resolveReportPeriod(from, to);
       let rowsForPdf = samples;
       let events = [];
+      let sensorsCatalog = [];
       if (useApi) {
-        const [hist, evs] = await Promise.all([
+        const [{ samples: hist, sensorsCatalog: cat }, evs] = await Promise.all([
           fetchHistorySamples(zoneId, 4000, period.fromIso, period.toIso),
           fetchNetworkEvents(500),
         ]);
         rowsForPdf = hist;
+        sensorsCatalog = cat || [];
         events = evs;
       } else {
         const fromMs = new Date(period.fromIso).getTime();
@@ -194,6 +196,7 @@ export default function HistoryReportPanel({
         period,
         samples: rowsForPdf,
         networkEvents: events,
+        sensorsCatalog,
       });
     } catch (e) {
       setErr(toUserErrorMessage(e));
@@ -207,7 +210,8 @@ export default function HistoryReportPanel({
       <header className="history-panel__head">
         <h2 className="history-panel__title">Storico e report</h2>
         <p className="history-panel__sub mono">
-          Grafico da campioni; export CSV completo; report PDF mensile (medie, allarmi rete e soglie).
+          Grafico da campioni; CSV; PDF con medie, anomalie da soglie DB, eventi rete. Da solo → fino a oggi; A
+          solo → dal 1° del mese alla data; entrambe → intervallo esatto.
         </p>
       </header>
 
@@ -227,7 +231,7 @@ export default function HistoryReportPanel({
           <input
             type="text"
             className="history-panel__input"
-            placeholder="vuoto = fino a ora"
+            placeholder="vuoto = auto (vedi sotto)"
             value={to}
             onChange={(e) => setTo(e.target.value)}
           />
@@ -269,8 +273,12 @@ export default function HistoryReportPanel({
           disabled={pdfBusy || loading || loadingParent || !zoneId}
           title={
             from && to
-              ? "Usa l'intervallo Da / A indicato sopra"
-              : "Usa il mese solare precedente (UTC) se Da/A sono vuoti"
+              ? "PDF: intervallo Da / A"
+              : from
+                ? "PDF: da Da fino a oggi"
+                : to
+                  ? "PDF: dal 1° del mese corrente alla data A"
+                  : "PDF: mese precedente se entrambi vuoti"
           }
         >
           {pdfBusy ? (

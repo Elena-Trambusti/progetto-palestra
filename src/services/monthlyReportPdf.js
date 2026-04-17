@@ -1,22 +1,10 @@
 /**
- * Report PDF mensile / di periodo: intestazione, medie da campioni storici,
- * elenco allarmi (eventi rete + superamenti soglie default allineate a env server ALARM_*).
+ * Report PDF: periodo flessibile, medie, anomalie da min/max anagrafica PostgreSQL,
+ * eventi rete, elenco sensori senza letture nel periodo.
  */
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatLocalDateTimeShort } from "../utils/localTime";
-
-/** Default coerenti con `server/lib/envAlarms.js` (prefisso ALARM_). */
-const DEFAULT_THRESHOLDS = {
-  tempHighC: 32,
-  tempLowC: 17,
-  humidityHighPct: 72,
-  humidityLowPct: 28,
-  co2HighPpm: 1000,
-  vocHigh: 350,
-  waterLowPct: 25,
-  waterCriticalPct: 12,
-};
 
 function meanOf(nums) {
   const xs = (nums || []).filter((n) => Number.isFinite(Number(n))).map(Number);
@@ -30,13 +18,37 @@ function fmtMean(v, decimals = 1) {
 }
 
 /**
- * Periodo report: se l'utente ha indicato Da e A validi, li usa; altrimenti mese solare precedente (UTC).
+ * Calcolo periodo report (stesso intervallo usato per le chiamate API).
+ * - Entrambe le date: intervallo esplicito
+ * - Solo "Da": da quella data a oggi
+ * - Solo "A": dal 1° del mese di calendario corrente (ora locale) alla data "A"
+ * - Nessuna data: mese solare precedente (UTC) come default
  */
 export function resolveReportPeriod(fromUser, toUser) {
   const from = String(fromUser || "").trim();
   const to = String(toUser || "").trim();
   if (from && to) {
-    return { fromIso: from, toIso: to, label: "Periodo selezionato (Da / A)" };
+    return {
+      fromIso: from,
+      toIso: to,
+      label: "Periodo personalizzato (Da / A)",
+    };
+  }
+  if (from && !to) {
+    return {
+      fromIso: from,
+      toIso: new Date().toISOString(),
+      label: "Da data indicata fino a oggi",
+    };
+  }
+  if (!from && to) {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    return {
+      fromIso: start.toISOString(),
+      toIso: to,
+      label: "Dal 1° giorno del mese corrente alla data fine (ora locale)",
+    };
   }
   const now = new Date();
   const y = now.getUTCFullYear();
@@ -46,7 +58,7 @@ export function resolveReportPeriod(fromUser, toUser) {
   return {
     fromIso: prevStart.toISOString(),
     toIso: prevEnd.toISOString(),
-    label: "Mese solare precedente (UTC)",
+    label: "Nessuna data selezionata — mese solare precedente (UTC)",
   };
 }
 
@@ -55,11 +67,73 @@ function inTimeRange(iso, fromMs, toMs) {
   return Number.isFinite(t) && t >= fromMs && t <= toMs;
 }
 
-function filterSamplesByPeriod(samples, fromIso, toIso) {
+export function filterSamplesByPeriod(samples, fromIso, toIso) {
   const fromMs = new Date(fromIso).getTime();
   const toMs = new Date(toIso).getTime();
   if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return samples || [];
   return (samples || []).filter((s) => s && s.iso && inTimeRange(s.iso, fromMs, toMs));
+}
+
+/** Valore misurato confrontabile con min/max anagrafica (stesso campo `value` del DB). */
+function numericMeasuredValue(r) {
+  if (r.value != null && Number.isFinite(Number(r.value))) return Number(r.value);
+  if (r.temp != null && Number.isFinite(Number(r.temp))) return Number(r.temp);
+  return null;
+}
+
+function hasConfiguredThreshold(minT, maxT) {
+  const hasMin = minT != null && Number.isFinite(Number(minT));
+  const hasMax = maxT != null && Number.isFinite(Number(maxT));
+  return hasMin || hasMax;
+}
+
+/**
+ * Anomalie vs min_threshold / max_threshold sulle righe campione (PostgreSQL).
+ */
+export function collectDbThresholdAnomalies(samples, maxRows = 220) {
+  const out = [];
+  for (const r of samples || []) {
+    if (out.length >= maxRows) break;
+    const v = numericMeasuredValue(r);
+    if (v == null) continue;
+    const minT = r.minThreshold;
+    const maxT = r.maxThreshold;
+    if (!hasConfiguredThreshold(minT, maxT)) continue;
+    const name = r.sensorName ? String(r.sensorName) : String(r.devEui || "Sensore");
+    const iso = r.iso;
+    let kind = null;
+    if (minT != null && Number.isFinite(Number(minT)) && v < Number(minT)) kind = "min";
+    if (maxT != null && Number.isFinite(Number(maxT)) && v > Number(maxT)) kind = "max";
+    if (!kind) continue;
+    const minStr = minT != null && Number.isFinite(Number(minT)) ? String(minT) : "—";
+    const maxStr = maxT != null && Number.isFinite(Number(maxT)) ? String(maxT) : "—";
+    const msg =
+      kind === "min"
+        ? `Anomalia: ${name} valore ${fmtMean(v)} sotto soglia min (${minStr}); max configurato ${maxStr}`
+        : `Anomalia: ${name} valore ${fmtMean(v)} sopra soglia max (${maxStr}); min configurato ${minStr}`;
+    out.push({ iso, severity: "warning", message: msg, source: "anagrafica" });
+  }
+  return out;
+}
+
+/** Righe tabella: sensori in anagrafica zona senza alcuna lettura nel periodo (per DevEUI). */
+export function buildEmptySensorCoverageRows(samples, sensorsCatalog) {
+  const seen = new Set();
+  for (const s of samples || []) {
+    const id = String(s.devEui || "").trim().toUpperCase();
+    if (id) seen.add(id);
+  }
+  const rows = [];
+  for (const s of sensorsCatalog || []) {
+    const id = String(s.devEui || "").trim().toUpperCase();
+    if (!id || seen.has(id)) continue;
+    rows.push([
+      String(s.name || id),
+      id,
+      "Nessuna lettura disponibile per questo periodo.",
+    ]);
+  }
+  return rows;
 }
 
 /** Aggrega medie da righe mock (tutte le grandezze) o PostgreSQL (per tipo sensore). */
@@ -143,144 +217,6 @@ function pushCap(arr, max, item) {
   arr.push(item);
 }
 
-/** Superamenti soglie sui campioni (stesse soglie di default del gateway). */
-export function collectThresholdAlarmsFromSamples(samples, maxRows = 180) {
-  const T = DEFAULT_THRESHOLDS;
-  const out = [];
-  for (const r of samples || []) {
-    if (out.length >= maxRows) break;
-    const iso = r.iso;
-    if (!iso) continue;
-    const ty = String(r.sensorType || "").toLowerCase();
-    const name = r.sensorName ? String(r.sensorName) : "Sensore";
-
-    if (r.temp != null && Number.isFinite(Number(r.temp))) {
-      const v = Number(r.temp);
-      if (v >= T.tempHighC) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "warning",
-          message: `Temp. ${v.toFixed(1)} °C >= soglia alta (${T.tempHighC} °C)`,
-        });
-      }
-      if (v <= T.tempLowC) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "warning",
-          message: `Temp. ${v.toFixed(1)} °C <= soglia bassa (${T.tempLowC} °C)`,
-        });
-      }
-    } else if ((ty.includes("temp") || ty.includes("temperatura")) && r.value != null) {
-      const v = Number(r.value);
-      if (Number.isFinite(v) && v >= T.tempHighC) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "warning",
-          message: `${name}: ${v.toFixed(1)} °C >= soglia alta (${T.tempHighC} °C)`,
-        });
-      }
-      if (Number.isFinite(v) && v <= T.tempLowC) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "warning",
-          message: `${name}: ${v.toFixed(1)} °C <= soglia bassa (${T.tempLowC} °C)`,
-        });
-      }
-    }
-
-    if (r.humidity != null && Number.isFinite(Number(r.humidity))) {
-      const h = Number(r.humidity);
-      if (h >= T.humidityHighPct) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "info",
-          message: `Umidita ${Math.round(h)}% >= ${T.humidityHighPct}%`,
-        });
-      }
-      if (h <= T.humidityLowPct) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "info",
-          message: `Umidita ${Math.round(h)}% <= ${T.humidityLowPct}%`,
-        });
-      }
-    } else if ((ty.includes("umid") || ty.includes("humid") || ty === "rh") && r.value != null) {
-      const h = Number(r.value);
-      if (Number.isFinite(h) && h >= T.humidityHighPct) {
-        pushCap(out, maxRows, { iso, severity: "info", message: `${name}: RH ${Math.round(h)}% >= ${T.humidityHighPct}%` });
-      }
-      if (Number.isFinite(h) && h <= T.humidityLowPct) {
-        pushCap(out, maxRows, { iso, severity: "info", message: `${name}: RH ${Math.round(h)}% <= ${T.humidityLowPct}%` });
-      }
-    }
-
-    if (r.co2 != null && Number.isFinite(Number(r.co2))) {
-      const c = Number(r.co2);
-      if (c >= T.co2HighPpm) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "warning",
-          message: `CO2 ${Math.round(c)} ppm >= ${T.co2HighPpm} ppm`,
-        });
-      }
-    } else if (ty.includes("co2") && r.value != null) {
-      const c = Number(r.value);
-      if (Number.isFinite(c) && c >= T.co2HighPpm) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "warning",
-          message: `${name}: CO2 ${Math.round(c)} ppm >= ${T.co2HighPpm} ppm`,
-        });
-      }
-    }
-
-    if (r.voc != null && Number.isFinite(Number(r.voc))) {
-      const v = Number(r.voc);
-      if (v >= T.vocHigh) {
-        pushCap(out, maxRows, { iso, severity: "info", message: `VOC ${Math.round(v)} >= ${T.vocHigh}` });
-      }
-    } else if ((ty.includes("voc") || ty.includes("iaq")) && r.value != null) {
-      const v = Number(r.value);
-      if (Number.isFinite(v) && v >= T.vocHigh) {
-        pushCap(out, maxRows, { iso, severity: "info", message: `${name}: VOC ${Math.round(v)} >= ${T.vocHigh}` });
-      }
-    }
-
-    if (r.water != null && Number.isFinite(Number(r.water))) {
-      const w = Number(r.water);
-      if (w <= T.waterCriticalPct) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "critical",
-          message: `Livello acqua ${w.toFixed(0)}% <= critico (${T.waterCriticalPct}%)`,
-        });
-      } else if (w <= T.waterLowPct) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "warning",
-          message: `Livello acqua ${w.toFixed(0)}% <= soglia bassa (${T.waterLowPct}%)`,
-        });
-      }
-    } else if ((ty.includes("livello") || ty.includes("acqua") || ty.includes("water")) && r.value != null) {
-      const w = Number(r.value);
-      if (Number.isFinite(w) && w <= T.waterCriticalPct) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "critical",
-          message: `${name}: livello ${w.toFixed(0)}% <= critico (${T.waterCriticalPct}%)`,
-        });
-      } else if (Number.isFinite(w) && w <= T.waterLowPct) {
-        pushCap(out, maxRows, {
-          iso,
-          severity: "warning",
-          message: `${name}: livello ${w.toFixed(0)}% <= soglia (${T.waterLowPct}%)`,
-        });
-      }
-    }
-  }
-  return out;
-}
-
 /** Eventi di rete (nodo offline, uplink in ritardo, ecc.) nel periodo e zona. */
 export function filterNetworkAlarmEvents(events, zoneId, fromIso, toIso) {
   const fromMs = new Date(fromIso).getTime();
@@ -296,7 +232,7 @@ export function filterNetworkAlarmEvents(events, zoneId, fromIso, toIso) {
   });
 }
 
-function mergeAndSortAlarms(networkList, thresholdList, maxTotal = 220) {
+function mergeAndSortEvents(networkList, anomalyList, maxTotal = 240) {
   const merged = [];
   for (const e of networkList || []) {
     pushCap(merged, maxTotal, {
@@ -306,21 +242,26 @@ function mergeAndSortAlarms(networkList, thresholdList, maxTotal = 220) {
       source: "rete",
     });
   }
-  for (const e of thresholdList || []) {
+  for (const e of anomalyList || []) {
     pushCap(merged, maxTotal, {
       iso: e.iso,
       severity: e.severity,
       message: e.message,
-      source: "soglie",
+      source: e.source || "anagrafica",
     });
   }
   merged.sort((a, b) => new Date(a.iso).getTime() - new Date(b.iso).getTime());
   return merged;
 }
 
+function originLabel(source) {
+  if (source === "rete") return "Rete";
+  if (source === "anagrafica") return "Anagrafica";
+  return String(source || "");
+}
+
 /**
- * Genera e scarica il PDF nel browser.
- * @param {{ zoneId: string, zoneLabel: string, period: { fromIso: string, toIso: string, label: string }, samples: any[], networkEvents?: any[] }} opts
+ * @param {{ zoneId: string, zoneLabel: string, period: object, samples: any[], networkEvents?: any[], sensorsCatalog?: any[] }} opts
  */
 export function generateMonthlyReportPdf(opts) {
   const {
@@ -329,13 +270,15 @@ export function generateMonthlyReportPdf(opts) {
     period,
     samples: rawSamples,
     networkEvents = [],
+    sensorsCatalog = [],
   } = opts;
 
   const samples = filterSamplesByPeriod(rawSamples, period.fromIso, period.toIso);
   const summaryBody = computeSummaryRows(samples);
   const netAlarms = filterNetworkAlarmEvents(networkEvents, zoneId, period.fromIso, period.toIso);
-  const thrAlarms = collectThresholdAlarmsFromSamples(samples);
-  const alarmRows = mergeAndSortAlarms(netAlarms, thrAlarms);
+  const dbAnomalies = collectDbThresholdAnomalies(samples);
+  const alarmRows = mergeAndSortEvents(netAlarms, dbAnomalies);
+  const emptySensorRows = buildEmptySensorCoverageRows(samples, sensorsCatalog);
 
   const generatedAt = new Date();
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -369,7 +312,7 @@ export function generateMonthlyReportPdf(opts) {
   doc.setFontSize(7.5);
   doc.setTextColor(80, 80, 80);
   doc.text(
-    "Medie calcolate sui campioni disponibili nel periodo (max ~4000 punti). Soglie allarme ambiente: default ALARM_* gateway se non diversamente configurato.",
+    "Medie sui campioni disponibili nel periodo (massimo ~4000 punti per richiesta). Le anomalie usano min/max configurati sul database per ogni sensore.",
     margin,
     y,
     { maxWidth: pageW - 2 * margin }
@@ -396,13 +339,56 @@ export function generateMonthlyReportPdf(opts) {
   } else {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(8);
-    doc.text("Nessun dato numerico nel periodo selezionato.", margin, y + 4);
-    y += 12;
+    doc.text(
+      "Nessun dato numerico nel periodo selezionato (nessuna lettura nei campioni recuperati).",
+      margin,
+      y + 4,
+      { maxWidth: pageW - 2 * margin }
+    );
+    y += 14;
   }
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.text("Allarmi e anomalie nel periodo", margin, y);
+  doc.text("Sensori della zona senza letture nel periodo", margin, y);
+  y += 2;
+
+  if (emptySensorRows.length) {
+    autoTable(doc, {
+      startY: y,
+      head: [["Sensore", "DevEUI", "Nota"]],
+      body: emptySensorRows,
+      theme: "striped",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [51, 65, 85], textColor: 255 },
+      margin: { left: margin, right: margin },
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  } else if ((sensorsCatalog || []).length) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(
+      "Tutti i sensori registrati in anagrafica per questa zona hanno almeno una lettura nel periodo (nei campioni recuperati).",
+      margin,
+      y + 4,
+      { maxWidth: pageW - 2 * margin }
+    );
+    y += 12;
+  } else {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8);
+    doc.text(
+      "Catalogo sensori zona non disponibile (modalità senza PostgreSQL / dati locali): non e possibile elencare i sensori senza letture.",
+      margin,
+      y + 4,
+      { maxWidth: pageW - 2 * margin }
+    );
+    y += 14;
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("Anomalie (soglie DB) ed eventi di rete", margin, y);
   y += 2;
 
   const alarmTableBody = alarmRows.length
@@ -410,9 +396,16 @@ export function generateMonthlyReportPdf(opts) {
         formatLocalDateTimeShort(a.iso),
         String(a.severity || ""),
         String(a.message || "").replace(/\u00b0/g, " deg "),
-        a.source === "rete" ? "Rete" : "Soglie",
+        originLabel(a.source),
       ])
-    : [["—", "—", "Nessun allarme registrato nel periodo (eventi rete + superamenti soglie sui campioni).", "—"]];
+    : [
+        [
+          "—",
+          "—",
+          "Nessuna anomalia rispetto alle soglie min/max salvate sul database per i sensori con soglie impostate; nessun evento di rete nel periodo.",
+          "—",
+        ],
+      ];
 
   autoTable(doc, {
     startY: y,
@@ -424,7 +417,7 @@ export function generateMonthlyReportPdf(opts) {
     columnStyles: {
       0: { cellWidth: 32 },
       1: { cellWidth: 18 },
-      3: { cellWidth: 18 },
+      3: { cellWidth: 22 },
     },
     margin: { left: margin, right: margin },
   });
