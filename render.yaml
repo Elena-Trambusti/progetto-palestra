@@ -1,15 +1,15 @@
+# Un solo servizio Web: CRA build + API + static file da Express (niente react-scripts start in produzione).
 services:
   - type: web
-    name: palestra-backend
+    name: palestra-app
     runtime: node
-    rootDir: server
+    rootDir: .
     plan: free
     autoDeploy: true
-    buildCommand: npm install
+    buildCommand: npm install --no-audit --no-fund && npm install --prefix server --no-audit --no-fund && NODE_OPTIONS="--max-old-space-size=3072" npm run build
     startCommand: npm start
     healthCheckPath: /health
     envVars:
-      # PORT non va impostato a mano: Render inietta la porta corretta in ascolto.
       - key: NODE_ENV
         value: production
       - key: REQUIRE_AUTH
@@ -20,6 +20,7 @@ services:
         generateValue: true
       - key: TRUST_PROXY
         value: "true"
+      # Stesso dominio dell'app: origine esatta del browser (HTTPS Render), es. https://palestra-app.onrender.com
       - key: CORS_ORIGIN
         sync: false
       - key: DATA_DIR
@@ -28,23 +29,3 @@ services:
       - name: palestra-data
         mountPath: /var/data
         sizeGB: 1
-
-  - type: web
-    name: palestra-frontend
-    runtime: static
-    rootDir: .
-    plan: free
-    autoDeploy: true
-    buildCommand: npm install && npm run build
-    staticPublishPath: build
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: REACT_APP_SENSOR_API_URL
-        sync: false
-      - key: REACT_APP_SENSOR_WS_URL
-        sync: false
-      - key: REACT_APP_POLL_INTERVAL_MS
-        value: "3000"

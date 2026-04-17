@@ -20,7 +20,8 @@
     "yaml": "^2.8.3"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "node server/index.js",
+    "start:frontend": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "test:ci": "cross-env CI=true react-scripts test --watch=false --passWithNoTests",
@@ -30,10 +31,10 @@
     "verify:ci": "npm run lint && npm run test:all && npm run build",
     "eject": "react-scripts eject",
     "server": "npm --prefix server start",
-    "stack": "start-server-and-test \"npm run server\" http://127.0.0.1:4000/api/zones \"cross-env REACT_APP_GATEWAY_MODE=proxy npm start\"",
+    "stack": "start-server-and-test \"npm run server\" http://127.0.0.1:4000/api/zones \"cross-env REACT_APP_GATEWAY_MODE=proxy npm run start:frontend\"",
     "sim:lora": "node server/tools/loraGatewaySimulator.js",
     "demo:reset": "node server/tools/resetDemoData.js",
-    "demo": "start-server-and-test \"npm run server\" http://127.0.0.1:4000/api/zones \"concurrently -k -n FRONTEND,SIM \\\"cross-env REACT_APP_GATEWAY_MODE=proxy npm start\\\" \\\"cross-env SIM_API_BASE=http://127.0.0.1:4000 npm run sim:lora\\\"\"",
+    "demo": "start-server-and-test \"npm run server\" http://127.0.0.1:4000/api/zones \"concurrently -k -n FRONTEND,SIM \\\"cross-env REACT_APP_GATEWAY_MODE=proxy npm run start:frontend\\\" \\\"cross-env SIM_API_BASE=http://127.0.0.1:4000 npm run sim:lora\\\"\"",
     "demo:clean": "npm run demo:reset && npm run demo"
   },
   "eslintConfig": {

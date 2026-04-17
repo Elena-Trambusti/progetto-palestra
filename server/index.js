@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 require("dotenv").config();
+const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const crypto = require("crypto");
@@ -185,7 +186,9 @@ const store = Object.fromEntries(ZONES.map((z) => [z.id, createInitialState(z.id
 
 const SENSORS = NODES.map((node) => node.label);
 
-const EVENT_BUFFER_MAX = Number(process.env.NETWORK_EVENT_BUFFER_MAX) || 250;
+const EVENT_BUFFER_MAX =
+  Number(process.env.NETWORK_EVENT_BUFFER_MAX) ||
+  (IS_RENDER ? 120 : 250);
 /** @type {Array<{ iso: string, t: number, type: string, severity: string, nodeId?: string, nodeLabel?: string, zoneId?: string, zoneName?: string, message: string, data?: any }>} */
 const networkEvents = networkEventsStore.loadRecent(DATA_DIR, EVENT_BUFFER_MAX);
 
@@ -1065,6 +1068,7 @@ const limitApiRead = makeRateLimit({
   windowMs: 60_000,
   max: 180,
   keyPrefix: "api-read",
+  maxKeys: IS_RENDER ? 2000 : 10_000,
 });
 
 function validateIsoRange(fromIso, toIso) {
@@ -1459,6 +1463,40 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
     .join("\n");
   res.send(header + body);
 });
+
+/**
+ * Produzione su un solo processo Node: serve `build/` (CRA) se presente.
+ * STATIC_BUILD_DIR opzionale (path assoluto alla cartella build).
+ */
+(function attachFrontendStaticFromBuild() {
+  const custom = String(process.env.STATIC_BUILD_DIR || "").trim();
+  const frontendRoot = custom
+    ? path.resolve(custom)
+    : path.resolve(__dirname, "..", "build");
+  const indexPath = path.join(frontendRoot, "index.html");
+  if (!fs.existsSync(indexPath)) {
+    if (IS_PROD) {
+      console.warn(
+        `[static] Nessun frontend compilato (${indexPath}). Solo API/WebSocket. Esegui dalla root: npm run build`
+      );
+    }
+    return;
+  }
+  app.use(
+    express.static(frontendRoot, {
+      index: false,
+      maxAge: IS_PROD ? "1h" : 0,
+    })
+  );
+  app.get("*", (req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    const p = req.path || "";
+    if (p.startsWith("/api")) return next();
+    res.sendFile(indexPath, (err) => {
+      if (err) next(err);
+    });
+  });
+})();
 
 const server = http.createServer(app);
 
@@ -1874,6 +1912,11 @@ async function startHttpServer() {
     if (pgStore) {
       console.log("  POST /api/ingest (webhook The Things Network · richiede DATABASE_URL)");
       console.log("  REST  CRUD /api/admin/sensors (gestione anagrafica sensori)");
+    }
+    if (IS_RENDER) {
+      console.log(
+        `  [mem] Buffer eventi di rete: ${EVENT_BUFFER_MAX} (NETWORK_EVENT_BUFFER_MAX=sostituibile)`
+      );
     }
     if (!INGEST_SECRET && !API_KEY) {
       logEvent("warn", "ingest_open_warning", {
