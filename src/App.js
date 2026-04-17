@@ -290,6 +290,7 @@ export default function App() {
             <div className="area-history">
               <HistoryReportPanel
                 zoneId={zoneId}
+                zones={zones}
                 useApi={useApi}
                 liveSamples={reportSamples}
                 loadingParent={dashboardLoading}

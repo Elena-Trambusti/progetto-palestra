@@ -419,7 +419,7 @@ async function historySamplesForLocation(location, limit, range) {
       params.push(new Date(range.toIso));
       whereTime += ` AND m.timestamp <= $${params.length}`;
     }
-    params.push(Math.min(2000, Math.max(1, limit)));
+    params.push(Math.min(4000, Math.max(1, limit)));
     const limIdx = params.length;
     const r = await c.query(
       `SELECT m.timestamp AS iso,

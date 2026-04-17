@@ -17,6 +17,36 @@ import { planPathForFloorId } from "./facilityFloors";
 export { normalizeDashboardPayload } from "./sensorNormalize";
 
 const SESSION_KEY = "palestra_session_token";
+const ADMIN_CONFIG_TOKEN_KEY = "palestra_admin_config_token";
+
+function isAdminAuthExemptPath(path) {
+  const p = String(path || "");
+  return (
+    p.startsWith("/api/admin/auth/login") ||
+    p.startsWith("/api/admin/auth/options")
+  );
+}
+
+export function getStoredAdminConfigToken() {
+  try {
+    return sessionStorage.getItem(ADMIN_CONFIG_TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setStoredAdminConfigToken(token) {
+  try {
+    if (token) sessionStorage.setItem(ADMIN_CONFIG_TOKEN_KEY, token);
+    else sessionStorage.removeItem(ADMIN_CONFIG_TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearAdminConfigSession() {
+  setStoredAdminConfigToken("");
+}
 
 export function getStoredSessionToken() {
   try {
@@ -66,6 +96,13 @@ export class LoginRequiredError extends Error {
   constructor() {
     super("LOGIN_REQUIRED");
     this.code = "LOGIN_REQUIRED";
+  }
+}
+
+export class AdminForbiddenError extends Error {
+  constructor() {
+    super("ADMIN_FORBIDDEN");
+    this.code = "admin_forbidden";
   }
 }
 
@@ -123,6 +160,12 @@ export function toUserErrorMessage(err) {
   if (code === "gateway_timeout") {
     return "Timeout gateway: la richiesta ha impiegato troppo tempo.";
   }
+  if (err instanceof AdminForbiddenError || code === "admin_forbidden") {
+    return "Sessione configurazione scaduta o assente: effettua di nuovo il login al pannello #configurazione.";
+  }
+  if (code === "invalid_admin_credentials") {
+    return "Password amministratore non valida.";
+  }
   if (err instanceof ApiHttpError && err.hint) return err.hint;
   if (typeof err?.message === "string" && err.message.trim()) return err.message;
   return "Errore API non previsto.";
@@ -133,6 +176,9 @@ async function handleJsonResponse(res) {
   const body = await parseJsonError(res);
   if (res.status === 401 && body.error === "login_required") {
     throw new LoginRequiredError();
+  }
+  if (res.status === 403 && body.error === "admin_forbidden") {
+    throw new AdminForbiddenError();
   }
   const msg = body.error || body.hint || `HTTP ${res.status}`;
   throw new ApiHttpError(
@@ -145,6 +191,14 @@ async function handleJsonResponse(res) {
 export async function sensorFetch(path, options = {}) {
   const url = apiUrl(path);
   const headers = { ...buildApiHeaders(), ...options.headers };
+  const p = String(path || "");
+  if (
+    (p.startsWith("/api/admin/") || p === "/api/admin") &&
+    !isAdminAuthExemptPath(p)
+  ) {
+    const adminTok = getStoredAdminConfigToken();
+    if (adminTok) headers["x-admin-token"] = adminTok;
+  }
   const timeoutMs = Number(process.env.REACT_APP_API_TIMEOUT_MS) || 10_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -246,6 +300,30 @@ export async function fetchHistorySamples(zoneId, limit = 200, from = "", to = "
   const res = await sensorFetch(`/api/history?${q.toString()}`);
   const json = await handleJsonResponse(res);
   return Array.isArray(json.samples) ? json.samples : [];
+}
+
+export async function fetchNetworkEvents(limit = 500) {
+  const q = new URLSearchParams();
+  q.set("limit", String(Math.min(500, Math.max(1, limit))));
+  const res = await sensorFetch(`/api/network/events?${q.toString()}`);
+  const json = await handleJsonResponse(res);
+  return Array.isArray(json.events) ? json.events : [];
+}
+
+export async function fetchAdminAuthOptions() {
+  const res = await sensorFetch("/api/admin/auth/options");
+  return handleJsonResponse(res);
+}
+
+export async function loginAdminConfig(password) {
+  const res = await sensorFetch("/api/admin/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const data = await handleJsonResponse(res);
+  if (data.token) setStoredAdminConfigToken(data.token);
+  return data;
 }
 
 export async function fetchAdminSensors() {

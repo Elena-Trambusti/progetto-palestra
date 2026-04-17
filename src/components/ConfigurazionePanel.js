@@ -1,12 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Settings, Trash2, Plus, Save, ArrowLeft } from "lucide-react";
+import { Settings, Trash2, Plus, Save, ArrowLeft, LogOut } from "lucide-react";
 import {
+  AdminForbiddenError,
+  clearAdminConfigSession,
   createAdminSensor,
   deleteAdminSensor,
+  fetchAdminAuthOptions,
   fetchAdminSensors,
+  getStoredAdminConfigToken,
   toUserErrorMessage,
   updateAdminSensor,
 } from "../services/sensorApi";
+import AdminConfigLogin from "./AdminConfigLogin";
 import "./LoginPanel.css";
 
 /** Valori salvati in `sensors.type` (coerenti con il decoder binario lato server). */
@@ -74,9 +79,14 @@ function resolvedType(form) {
 
 /**
  * Pannello amministrativo: CRUD su tabella `sensors` (database es. db-palestra su Render).
- * Protetto dalle stesse credenziali del gateway (sessione / API key).
+ * Se `ADMIN_PASSWORD` è impostata sul server, richiede login dedicato (token in sessionStorage).
  */
 export default function ConfigurazionePanel({ onBack }) {
+  const [booting, setBooting] = useState(true);
+  const [bootError, setBootError] = useState(null);
+  const [adminPwdRequired, setAdminPwdRequired] = useState(false);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   /** Messaggio verde (successo) o rosso (errore) per salvataggio / lista / eliminazione. */
@@ -86,12 +96,41 @@ export default function ConfigurazionePanel({ onBack }) {
   const [editingId, setEditingId] = useState(null);
   const successClearTimer = useRef(null);
 
+  const runAuthGate = useCallback(async () => {
+    setBooting(true);
+    setBootError(null);
+    try {
+      const opt = await fetchAdminAuthOptions();
+      const required = Boolean(opt?.adminPasswordRequired);
+      setAdminPwdRequired(required);
+      if (required && !getStoredAdminConfigToken()) {
+        setShowAdminLogin(true);
+      } else {
+        setShowAdminLogin(false);
+      }
+    } catch (e) {
+      setBootError(toUserErrorMessage(e));
+    } finally {
+      setBooting(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void runAuthGate();
+  }, [runAuthGate]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchAdminSensors();
       setRows(Array.isArray(data.sensors) ? data.sensors : []);
     } catch (e) {
+      if (e instanceof AdminForbiddenError) {
+        clearAdminConfigSession();
+        setShowAdminLogin(true);
+        setRows([]);
+        return;
+      }
       setNotice({ type: "error", text: toUserErrorMessage(e) });
     } finally {
       setLoading(false);
@@ -99,8 +138,9 @@ export default function ConfigurazionePanel({ onBack }) {
   }, []);
 
   useEffect(() => {
+    if (booting || showAdminLogin) return;
     void load();
-  }, [load]);
+  }, [load, booting, showAdminLogin]);
 
   useEffect(() => {
     if (notice?.type !== "success") return undefined;
@@ -215,7 +255,12 @@ export default function ConfigurazionePanel({ onBack }) {
       setEditingId(null);
       await load();
     } catch (e) {
-      setNotice({ type: "error", text: toUserErrorMessage(e) });
+      if (e instanceof AdminForbiddenError) {
+        clearAdminConfigSession();
+        setShowAdminLogin(true);
+      } else {
+        setNotice({ type: "error", text: toUserErrorMessage(e) });
+      }
     } finally {
       endCooldown();
     }
@@ -250,8 +295,65 @@ export default function ConfigurazionePanel({ onBack }) {
       setNotice({ type: "success", text: "Sensore eliminato." });
       await load();
     } catch (e) {
-      setNotice({ type: "error", text: toUserErrorMessage(e) });
+      if (e instanceof AdminForbiddenError) {
+        clearAdminConfigSession();
+        setShowAdminLogin(true);
+      } else {
+        setNotice({ type: "error", text: toUserErrorMessage(e) });
+      }
     }
+  }
+
+  function handleAdminLogout() {
+    clearAdminConfigSession();
+    if (adminPwdRequired) setShowAdminLogin(true);
+  }
+
+  if (booting) {
+    return (
+      <div className="login-panel login-panel--config">
+        <div className="login-panel__card glass-panel" style={{ maxWidth: 420, margin: "0 auto", textAlign: "center" }}>
+          <p className="mono" style={{ margin: 0, color: "#a5b4fc" }}>
+            Verifica accesso configurazione…
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <div className="login-panel login-panel--config">
+        <div className="login-panel__card glass-panel" style={{ maxWidth: 480, margin: "0 auto" }}>
+          <p className="mono" role="alert" style={{ color: "#fecaca", marginBottom: "1rem" }}>
+            {bootError}
+          </p>
+          <button type="button" className="login-panel__btn login-panel__btn--primary mono" onClick={() => void runAuthGate()}>
+            Riprova
+          </button>
+          <button
+            type="button"
+            className="login-panel__btn login-panel__btn--ghost mono"
+            style={{ marginLeft: 8 }}
+            onClick={onBack}
+          >
+            <ArrowLeft size={16} aria-hidden />
+            Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (showAdminLogin) {
+    return (
+      <AdminConfigLogin
+        onBack={onBack}
+        onLoggedIn={() => {
+          setShowAdminLogin(false);
+        }}
+      />
+    );
   }
 
   return (
@@ -267,14 +369,27 @@ export default function ConfigurazionePanel({ onBack }) {
           </div>
         </div>
 
-        <button
-          type="button"
-          className="login-panel__btn login-panel__btn--ghost mono login-panel__btn--back"
-          onClick={onBack}
-        >
-          <ArrowLeft size={16} aria-hidden />
-          Torna alla dashboard
-        </button>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.35rem" }}>
+          <button
+            type="button"
+            className="login-panel__btn login-panel__btn--ghost mono login-panel__btn--back"
+            onClick={onBack}
+          >
+            <ArrowLeft size={16} aria-hidden />
+            Torna alla dashboard
+          </button>
+          {adminPwdRequired ? (
+            <button
+              type="button"
+              className="login-panel__btn login-panel__btn--ghost mono"
+              onClick={handleAdminLogout}
+              title="Rimuove il token admin da questa scheda del browser"
+            >
+              <LogOut size={16} aria-hidden />
+              Esci (admin)
+            </button>
+          ) : null}
+        </div>
 
         {notice ? (
           <p

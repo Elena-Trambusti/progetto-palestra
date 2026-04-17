@@ -243,3 +243,63 @@ test("dashboard snapshot requires login when REQUIRE_AUTH=true", async () => {
     await stop();
   }
 });
+
+test("admin sensors CRUD requires x-admin-token when ADMIN_PASSWORD is set", async () => {
+  const adminPass = "cfg-admin-test-9xK";
+  const { baseUrl, stop } = await startGateway({
+    REQUIRE_AUTH: "false",
+    AUTH_PASSWORD: "",
+    INGEST_SECRET: "test-ingest-secret",
+    NOTIFY_WEBHOOK_URL: "",
+    ADMIN_PASSWORD: adminPass,
+  });
+
+  try {
+    const opt = await fetch(`${baseUrl}/api/admin/auth/options`);
+    assert.equal(opt.status, 200);
+    const optBody = await opt.json();
+    assert.equal(optBody.adminPasswordRequired, true);
+
+    const noTokGet = await fetch(`${baseUrl}/api/admin/sensors`);
+    assert.equal(noTokGet.status, 403);
+    assert.equal((await noTokGet.json()).error, "admin_forbidden");
+
+    const noTokPost = await fetch(`${baseUrl}/api/admin/sensors`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    assert.equal(noTokPost.status, 403);
+
+    const badLogin = await fetch(`${baseUrl}/api/admin/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "wrong-password" }),
+    });
+    assert.equal(badLogin.status, 401);
+    assert.equal((await badLogin.json()).error, "invalid_admin_credentials");
+
+    const okLogin = await fetch(`${baseUrl}/api/admin/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: adminPass }),
+    });
+    assert.equal(okLogin.status, 200);
+    const loginBody = await okLogin.json();
+    assert.equal(loginBody.ok, true);
+    assert.ok(typeof loginBody.token === "string" && loginBody.token.length > 8);
+
+    const withTok = await fetch(`${baseUrl}/api/admin/sensors`, {
+      headers: { "x-admin-token": loginBody.token },
+    });
+    assert.equal(withTok.status, 503);
+    assert.equal((await withTok.json()).error, "database_required");
+
+    const badTok = await fetch(`${baseUrl}/api/admin/sensors`, {
+      headers: { "x-admin-token": "not-a-valid-token" },
+    });
+    assert.equal(badTok.status, 403);
+  } finally {
+    await stop();
+  }
+});

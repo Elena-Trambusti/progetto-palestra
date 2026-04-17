@@ -11,12 +11,17 @@ import {
   Filler,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { FileDown, Loader2, RefreshCw } from "lucide-react";
+import { FileDown, FileText, Loader2, RefreshCw } from "lucide-react";
 import {
   fetchHistorySamples,
+  fetchNetworkEvents,
   reportCsvUrl,
   toUserErrorMessage,
 } from "../services/sensorApi";
+import {
+  generateMonthlyReportPdf,
+  resolveReportPeriod,
+} from "../services/monthlyReportPdf";
 import { formatLocalDateTimeShort, formatLocalTimeHms } from "../utils/localTime";
 import "./HistoryReportPanel.css";
 
@@ -59,6 +64,8 @@ function buildCsv(samples, zoneId) {
 
 export default function HistoryReportPanel({
   zoneId,
+  zoneLabel,
+  zones,
   useApi,
   liveSamples,
   loadingParent,
@@ -67,7 +74,14 @@ export default function HistoryReportPanel({
   const [to, setTo] = useState("");
   const [fetched, setFetched] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [err, setErr] = useState(null);
+
+  const resolvedZoneLabel =
+    zoneLabel ||
+    (Array.isArray(zones) ? zones.find((z) => z.id === zoneId)?.name : null) ||
+    zoneId ||
+    "—";
 
   const samples = useMemo(
     () => (useApi ? fetched : liveSamples || []),
@@ -148,12 +162,52 @@ export default function HistoryReportPanel({
 
   const csvHref = useApi ? reportCsvUrl(zoneId, 8000, from, to) : null;
 
+  async function handleMonthlyPdf() {
+    if (!zoneId) {
+      setErr("Seleziona una zona per generare il report.");
+      return;
+    }
+    setPdfBusy(true);
+    setErr(null);
+    try {
+      const period = resolveReportPeriod(from, to);
+      let rowsForPdf = samples;
+      let events = [];
+      if (useApi) {
+        const [hist, evs] = await Promise.all([
+          fetchHistorySamples(zoneId, 4000, period.fromIso, period.toIso),
+          fetchNetworkEvents(500),
+        ]);
+        rowsForPdf = hist;
+        events = evs;
+      } else {
+        const fromMs = new Date(period.fromIso).getTime();
+        const toMs = new Date(period.toIso).getTime();
+        rowsForPdf = (liveSamples || []).filter((r) => {
+          const t = new Date(r.iso).getTime();
+          return Number.isFinite(t) && t >= fromMs && t <= toMs;
+        });
+      }
+      generateMonthlyReportPdf({
+        zoneId,
+        zoneLabel: resolvedZoneLabel,
+        period,
+        samples: rowsForPdf,
+        networkEvents: events,
+      });
+    } catch (e) {
+      setErr(toUserErrorMessage(e));
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   return (
     <section className="history-panel glass-panel">
       <header className="history-panel__head">
         <h2 className="history-panel__title">Storico e report</h2>
         <p className="history-panel__sub mono">
-          Grafico da campioni; export CSV completo (tutte le grandezze).
+          Grafico da campioni; export CSV completo; report PDF mensile (medie, allarmi rete e soglie).
         </p>
       </header>
 
@@ -208,6 +262,24 @@ export default function HistoryReportPanel({
             Scarica CSV (mock)
           </button>
         )}
+        <button
+          type="button"
+          className="history-panel__btn"
+          onClick={() => void handleMonthlyPdf()}
+          disabled={pdfBusy || loading || loadingParent || !zoneId}
+          title={
+            from && to
+              ? "Usa l'intervallo Da / A indicato sopra"
+              : "Usa il mese solare precedente (UTC) se Da/A sono vuoti"
+          }
+        >
+          {pdfBusy ? (
+            <Loader2 className="history-panel__spin" aria-hidden />
+          ) : (
+            <FileText size={16} aria-hidden />
+          )}
+          Genera Report Mensile PDF
+        </button>
       </div>
 
       {err ? <p className="history-panel__err mono">{err}</p> : null}

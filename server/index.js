@@ -40,6 +40,7 @@ const {
   isValid,
 } = require("./lib/sessions");
 const { ingestTtnWebhook } = require("./lib/ttnIngest");
+const adminAuthLib = require("./lib/adminAuth");
 
 const DATABASE_URL = (process.env.DATABASE_URL || "").trim();
 const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
@@ -1036,6 +1037,11 @@ const limitAuthLogin = makeRateLimit({
   max: 8,
   keyPrefix: "auth-login",
 });
+const limitAdminLogin = makeRateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyPrefix: "admin-login",
+});
 const limitIngest = makeRateLimit({
   windowMs: 60_000,
   max: 240,
@@ -1065,6 +1071,33 @@ function validateIsoRange(fromIso, toIso) {
 app.use("/api/auth/login", limitAuthLogin);
 attachAuthRoutes(app, { requireAuth: REQUIRE_AUTH, authPassword: AUTH_PASSWORD });
 
+app.get("/api/admin/auth/options", (_req, res) => {
+  res.json({ adminPasswordRequired: adminAuthLib.isAdminPasswordConfigured() });
+});
+
+app.post("/api/admin/auth/login", limitAdminLogin, (req, res) => {
+  if (!adminAuthLib.isAdminPasswordConfigured()) {
+    return res.status(503).json({
+      error: "admin_password_not_configured",
+      hint: "Imposta ADMIN_PASSWORD su Render (o in .env) per abilitare il pannello configurazione protetto.",
+    });
+  }
+  const pwdBody = String(req.body?.password || "");
+  if (pwdBody !== adminAuthLib.adminPassword()) {
+    return res.status(401).json({ error: "invalid_admin_credentials" });
+  }
+  try {
+    const token = adminAuthLib.signAdminToken();
+    return res.json({
+      ok: true,
+      token,
+      expiresInSec: Math.floor(adminAuthLib.ADMIN_TOKEN_TTL_MS / 1000),
+    });
+  } catch {
+    return res.status(500).json({ error: "admin_token_error" });
+  }
+});
+
 const apiGate = gateMiddleware({ requireAuth: REQUIRE_AUTH, apiKey: API_KEY });
 
 function protectDataApis(req, res, next) {
@@ -1072,6 +1105,7 @@ function protectDataApis(req, res, next) {
   if (!req.path.startsWith("/api/")) return next();
   if (req.path.startsWith("/api/auth")) return next();
   if (req.path.startsWith("/api/ingest")) return next();
+  if (req.path.startsWith("/api/admin")) return next();
   return apiGate(req, res, next);
 }
 
@@ -1288,7 +1322,7 @@ app.get("/api/history", limitApiRead, async (req, res) => {
     const zone = await resolveSnapshotZoneOrError(req.query.zoneId);
     if (!zone.ok) return res.status(400).json({ error: zone.error });
     const { zoneId } = zone;
-    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+    const limit = Math.min(4000, Math.max(1, Number(req.query.limit) || 200));
     const samples = await pgStore.historySamplesForLocation(zoneId, limit, range);
     return res.json({ zoneId, nodeId: null, limit, points: [], samples });
   }
@@ -1299,7 +1333,7 @@ app.get("/api/history", limitApiRead, async (req, res) => {
   if (!node.ok) return res.status(400).json({ error: node.error });
   const { zoneId } = zone;
   const { nodeId } = node;
-  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+  const limit = Math.min(4000, Math.max(1, Number(req.query.limit) || 200));
   const points = nodeId
     ? history.readNodeSeries(DATA_DIR, nodeId, limit)
     : history.readZoneSeries(DATA_DIR, zoneId, limit);
@@ -1563,7 +1597,7 @@ app.post("/api/ingest", limitIngest, ingestAuth, async (req, res) => {
   }
 });
 
-app.get("/api/admin/sensors", limitApiRead, async (_req, res) => {
+app.get("/api/admin/sensors", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
   if (!pgStore) return res.status(503).json({ error: "database_required" });
   try {
     const sensors = await pgStore.listSensorsAll();
@@ -1597,7 +1631,7 @@ function adminSensorErrorResponse(err) {
   return null;
 }
 
-app.post("/api/admin/sensors", limitApiRead, async (req, res) => {
+app.post("/api/admin/sensors", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
   if (!pgStore) return res.status(503).json({ error: "database_required" });
   try {
     const row = await pgStore.insertSensor(req.body || {});
@@ -1619,7 +1653,7 @@ app.post("/api/admin/sensors", limitApiRead, async (req, res) => {
   }
 });
 
-app.patch("/api/admin/sensors/:id", limitApiRead, async (req, res) => {
+app.patch("/api/admin/sensors/:id", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
   if (!pgStore) return res.status(503).json({ error: "database_required" });
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
@@ -1644,7 +1678,7 @@ app.patch("/api/admin/sensors/:id", limitApiRead, async (req, res) => {
   }
 });
 
-app.delete("/api/admin/sensors/:id", limitApiRead, async (req, res) => {
+app.delete("/api/admin/sensors/:id", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
   if (!pgStore) return res.status(503).json({ error: "database_required" });
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
