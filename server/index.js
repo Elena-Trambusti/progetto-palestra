@@ -48,7 +48,14 @@ const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
 const PORT = Number(process.env.PORT) || 4000;
 const API_KEY = (process.env.API_KEY || "").trim();
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "http://localhost:3000").trim();
-const REQUIRE_AUTH = String(process.env.REQUIRE_AUTH || "").toLowerCase() === "true";
+/** Su Render (`RENDER=true`) senza variabile esplicita, si assume login dashboard attivo (coerente con blueprint). */
+const IS_RENDER =
+  String(process.env.RENDER || "").toLowerCase() === "true" ||
+  Boolean(String(process.env.RENDER_EXTERNAL_URL || "").trim());
+const REQUIRE_AUTH = (() => {
+  if (process.env.REQUIRE_AUTH === undefined && IS_RENDER) return true;
+  return String(process.env.REQUIRE_AUTH || "").toLowerCase() === "true";
+})();
 const AUTH_PASSWORD = String(process.env.AUTH_PASSWORD || "").trim();
 const DATA_DIR = path.resolve(
   process.env.DATA_DIR || path.join(__dirname, "data")
@@ -93,8 +100,10 @@ if (IS_PROD) {
     console.error("[config] In production REQUIRE_AUTH deve essere true.");
     process.exit(1);
   }
-  if (!INGEST_SECRET) {
-    console.error("[config] In production devi impostare INGEST_SECRET.");
+  if (!INGEST_SECRET && !API_KEY) {
+    console.error(
+      "[config] In produzione serve almeno uno tra INGEST_SECRET o API_KEY (protezione webhook ingest e client TTN)."
+    );
     process.exit(1);
   }
   if (CORS_ORIGIN === "*") {
@@ -1831,6 +1840,14 @@ async function startHttpServer() {
     }
     if (REQUIRE_AUTH) {
       console.log("  Autenticazione attiva (POST /api/auth/login · password da AUTH_PASSWORD)");
+    }
+    if (
+      IS_RENDER &&
+      (CORS_ORIGIN === "http://localhost:3000" || CORS_ORIGIN === "http://127.0.0.1:3000")
+    ) {
+      console.warn(
+        "  [config] CORS_ORIGIN è ancora localhost: su Render imposta l'URL del sito statico (es. https://tuo-frontend.onrender.com) o le API dal browser verranno bloccate (CORS), non per 502."
+      );
     }
     if (NOTIFY_WEBHOOK) {
       console.log(

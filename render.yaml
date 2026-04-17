@@ -9,10 +9,9 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      # PORT non va impostato a mano: Render inietta la porta corretta in ascolto.
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
       - key: REQUIRE_AUTH
         value: "true"
       - key: AUTH_PASSWORD
