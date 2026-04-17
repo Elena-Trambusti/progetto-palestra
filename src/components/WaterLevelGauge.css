@@ -1,8 +1,11 @@
 .water-gauge {
-  padding: 1rem 1.1rem 1.15rem;
+  padding: clamp(0.65rem, 2.5vw, 1.1rem);
   display: flex;
   flex-direction: column;
-  min-height: 320px;
+  min-height: min(320px, 50vh);
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .water-gauge__head {

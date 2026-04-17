@@ -1,8 +1,8 @@
 import React from "react";
-import { LayoutDashboard, LineChart, RadioTower, Cpu } from "lucide-react";
+import { LayoutDashboard, LineChart, RadioTower, Cpu, Settings } from "lucide-react";
 import "./MainTabs.css";
 
-export default function MainTabs({ value, onChange }) {
+export default function MainTabs({ value, onChange, showConfigNav, onOpenConfig }) {
   return (
     <div className="main-tabs glass-panel" role="tablist" aria-label="Sezioni dashboard">
       <button
@@ -45,6 +45,19 @@ export default function MainTabs({ value, onChange }) {
         <Cpu size={18} aria-hidden />
         Dettaglio nodo
       </button>
+      {showConfigNav && onOpenConfig ? (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={false}
+          className="main-tabs__btn"
+          onClick={onOpenConfig}
+          title="Apri /#configurazione (anagrafica sensori · richiede PostgreSQL sul server)"
+        >
+          <Settings size={18} aria-hidden />
+          Configurazione
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -16,7 +16,7 @@ export default function ZoneSelector({
         <div>
           <h2 className="zone-selector__title">Zona impianto</h2>
           <p className="zone-selector__hint mono">
-            Seleziona il punto monitorato e il relativo nodo remoto
+            Posizioni univoche da anagrafica sensori (campo location nel database)
           </p>
         </div>
       </div>
@@ -29,8 +29,11 @@ export default function ZoneSelector({
           className="zone-selector__select mono"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          disabled={disabled}
+          disabled={disabled || !zones.length}
         >
+          {!zones.length ? (
+            <option value="">— Nessuna location in anagrafica —</option>
+          ) : null}
           {zones.map((z) => (
             <option key={z.id} value={z.id}>
               {z.name}

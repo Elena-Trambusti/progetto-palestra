@@ -1,5 +1,6 @@
 import React from "react";
 import { Cpu, Battery, Radio, Clock3, ListChecks } from "lucide-react";
+import { formatUplinkAgoOrLocal } from "../utils/localTime";
 import "./NodeDetailPanel.css";
 
 function fmt(value, digits = 0, suffix = "") {
@@ -8,14 +9,7 @@ function fmt(value, digits = 0, suffix = "") {
 }
 
 function fmtWhen(value) {
-  if (!value) return "—";
-  const ts = new Date(value).getTime();
-  if (!Number.isFinite(ts)) return "—";
-  const deltaSec = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (deltaSec < 60) return `${deltaSec}s fa`;
-  const min = Math.round(deltaSec / 60);
-  if (min < 60) return `${min} min fa`;
-  return new Date(value).toLocaleTimeString("it-IT");
+  return formatUplinkAgoOrLocal(value);
 }
 
 function statusLabel(status) {

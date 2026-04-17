@@ -1,6 +1,25 @@
+import { formatLocalTimeHms } from "../utils/localTime";
+
 function num(v, fallback) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** Etichetta asse tempi: preferisce `iso` / `t` UTC dal backend, altrimenti etichetta legacy. */
+function chartAxisLabelFromPoint(p) {
+  const iso = p.iso ?? p.t ?? null;
+  if (iso != null && String(iso).trim() !== "") {
+    const formatted = formatLocalTimeHms(iso);
+    if (formatted !== "—") return formatted;
+  }
+  const rawLabel = p.label ?? "";
+  const s = String(rawLabel).trim();
+  if (!s) return "—";
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const formatted = formatLocalTimeHms(s);
+    if (formatted !== "—") return formatted;
+  }
+  return s;
 }
 
 function parseAlarms(raw) {
@@ -55,7 +74,7 @@ export function normalizeDashboardPayload(data) {
 
   const cleanSeries = series
     .map((p) => ({
-      label: String(p.label ?? p.t ?? ""),
+      label: chartAxisLabelFromPoint(p),
       value: num(p.value, NaN),
     }))
     .filter((p) => !Number.isNaN(p.value));
@@ -64,13 +83,22 @@ export function normalizeDashboardPayload(data) {
   const values = cleanSeries.map((p) => p.value);
 
   const lastFromSeries = values.length ? values[values.length - 1] : null;
-  const lastTempRaw = num(
-    data.currentTemperature ?? data.currentTemp ?? lastFromSeries,
-    NaN
-  );
+  const lastTempSource =
+    data.currentTemperature ?? data.currentTemp ?? lastFromSeries;
+  const lastTempRaw =
+    lastTempSource == null || lastTempSource === ""
+      ? NaN
+      : num(lastTempSource, NaN);
   const lastTemp = Number.isFinite(lastTempRaw) ? lastTempRaw : null;
 
-  const water = num(data.waterLevelPercent ?? data.waterReservePercent ?? data.water, 0);
+  const waterRaw = data.waterLevelPercent ?? data.waterReservePercent ?? data.water;
+  const waterParsed =
+    waterRaw === null || waterRaw === undefined || waterRaw === ""
+      ? NaN
+      : num(waterRaw, NaN);
+  const water = Number.isFinite(waterParsed)
+    ? Math.max(0, Math.min(100, waterParsed))
+    : null;
 
   const waterEtaRaw = data.waterEtaHours;
   const waterEtaHours =
@@ -101,6 +129,9 @@ export function normalizeDashboardPayload(data) {
 
   const siteZones = Array.isArray(data.siteZones) ? data.siteZones : [];
   const floors = Array.isArray(data.floors) ? data.floors : [];
+  const sensorCards = Array.isArray(data.sensorCards) ? data.sensorCards : [];
+  const dataProfile =
+    typeof data.dataProfile === "string" ? data.dataProfile : null;
   const telemetry =
     data.telemetry && typeof data.telemetry === "object" ? data.telemetry : {};
   const network =
@@ -125,20 +156,26 @@ export function normalizeDashboardPayload(data) {
     ? rawLogs.map((x) => (typeof x === "string" ? x : String(x.text ?? x.message ?? "")))
     : [];
 
-  const safeValues =
-    values.length > 0
+  const postgresEmptyZone =
+    dataProfile === "postgres" && sensorCards.length === 0;
+
+  const safeValues = postgresEmptyZone
+    ? []
+    : values.length > 0
       ? values
       : lastTemp != null
         ? [lastTemp]
         : [28];
 
+  const chartLabels = postgresEmptyZone ? ["—"] : labels.length ? labels : ["—"];
+
   const z = data.zone && typeof data.zone === "object" ? data.zone : null;
 
   return {
-    labels: labels.length ? labels : ["—"],
+    labels: chartLabels,
     values: safeValues,
     lastTemp,
-    water: Math.max(0, Math.min(100, water)),
+    water,
     waterEtaHours: Number.isFinite(waterEtaHours) ? waterEtaHours : null,
     waterEtaConfidence: waterEtaConfidence || null,
     waterDepletionRatePctPerHour: Number.isFinite(waterDepletionRatePctPerHour)
@@ -196,5 +233,7 @@ export function normalizeDashboardPayload(data) {
               : null,
         }
       : null,
+    sensorCards,
+    dataProfile,
   };
 }

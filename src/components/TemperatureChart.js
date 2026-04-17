@@ -28,6 +28,9 @@ ChartJS.register(
 const chartOptionsBase = {
   responsive: true,
   maintainAspectRatio: false,
+  layout: {
+    padding: { left: 0, right: 8, top: 4, bottom: 6 },
+  },
   interaction: { mode: "index", intersect: false },
   plugins: {
     legend: { display: false },
@@ -66,7 +69,13 @@ const chartOptionsBase = {
   },
 };
 
-export default function TemperatureChart({ labels, values, currentTemp, loading }) {
+export default function TemperatureChart({
+  labels,
+  values,
+  currentTemp,
+  loading,
+  emptyHint = "",
+}) {
   const chartData = useMemo(() => {
     const areaGradient = (context) => {
       const chart = context.chart;
@@ -84,12 +93,14 @@ export default function TemperatureChart({ labels, values, currentTemp, loading 
       return g;
     };
 
+    const dataPts = Array.isArray(values) && values.length ? values : [null];
+
     return {
-      labels,
+      labels: labels.length ? labels : ["—"],
       datasets: [
         {
           label: "Docce",
-          data: values,
+          data: dataPts,
           fill: true,
           tension: 0.38,
           borderWidth: 2,
@@ -131,7 +142,13 @@ export default function TemperatureChart({ labels, values, currentTemp, loading 
         className={`temp-chart__canvas-wrap${loading ? " temp-chart__canvas-wrap--loading" : ""}`}
         aria-busy={loading ? "true" : "false"}
       >
-        <Line data={chartData} options={chartOptionsBase} />
+        {emptyHint && !loading ? (
+          <p className="mono" style={{ padding: "2rem 1rem", textAlign: "center", color: "#a1a1aa" }}>
+            {emptyHint}
+          </p>
+        ) : (
+          <Line data={chartData} options={chartOptionsBase} />
+        )}
         {loading ? (
           <div className="temp-chart__loading" aria-hidden>
             <ChartLoaderIcon className="temp-chart__spinner" />

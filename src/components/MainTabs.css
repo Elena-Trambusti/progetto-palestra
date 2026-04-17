@@ -10,7 +10,8 @@
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  padding: 0.5rem 0.75rem;
+  min-height: 44px;
+  padding: 0.55rem 0.75rem;
   border-radius: 10px;
   border: 1px solid transparent;
   background: transparent;
@@ -19,6 +20,8 @@
   font-weight: 500;
   cursor: pointer;
   transition: color 0.15s, background 0.15s, border-color 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .main-tabs__btn:hover {

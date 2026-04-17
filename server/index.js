@@ -39,6 +39,10 @@ const {
   gateMiddleware,
   isValid,
 } = require("./lib/sessions");
+const { ingestTtnWebhook } = require("./lib/ttnIngest");
+
+const DATABASE_URL = (process.env.DATABASE_URL || "").trim();
+const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
 
 const PORT = Number(process.env.PORT) || 4000;
 const API_KEY = (process.env.API_KEY || "").trim();
@@ -709,7 +713,7 @@ function alarmLevelForState(st) {
   return "ok";
 }
 
-function buildSnapshotPayload(zoneId) {
+function buildLegacySnapshotPayload(zoneId) {
   const z = findZone(zoneId) || ZONES[0];
   const st = store[z.id];
   const node = findNodeByZone(z.id);
@@ -811,6 +815,112 @@ function buildSnapshotPayload(zoneId) {
     waterRapidDropDelta: rapid.waterRapidDropDelta,
     logLines: st.logLines,
   };
+}
+
+/**
+ * Associa la stringa richiesta (query string / UI) alla `location` esatta nel DB:
+ * uguaglianza diretta, NFC Unicode, spazi compressi e trim — così zone con spazi
+ * o caratteri speciali restano allineate tra catalogo e filtro snapshot.
+ */
+function resolvePostgresLocation(wantRaw, locs) {
+  const locList = Array.isArray(locs) ? locs.map((x) => String(x)) : [];
+  if (!locList.length) return null;
+  const want = String(wantRaw ?? "").trim();
+  if (!want) return locList[0];
+
+  if (locList.includes(want)) return want;
+
+  const wantNfc = want.normalize("NFC");
+  for (const loc of locList) {
+    if (loc.normalize("NFC") === wantNfc) return loc;
+  }
+
+  const collapse = (s) => s.replace(/\s+/g, " ").trim();
+  const wantC = collapse(want);
+  for (const loc of locList) {
+    if (collapse(loc) === wantC) return loc;
+  }
+
+  return null;
+}
+
+/**
+ * Snapshot unificato: con PostgreSQL legge zone (location) da tabella sensors;
+ * in assenza di DATABASE_URL mantiene il modello legacy in-memory.
+ */
+async function buildSnapshotPayload(zoneId) {
+  if (pgStore) {
+    const locs = await pgStore.listDistinctLocations();
+    if (!locs.length) {
+      return {
+        dataProfile: "postgres",
+        zone: { id: "", name: "—", floor: "", mapX: 50, mapY: 50, planPath: null },
+        facility: {
+          name: "Centrale IoT · PostgreSQL",
+          city: "",
+          zones: 0,
+          nodes: 0,
+          gateways: 0,
+        },
+        floors: [],
+        siteZones: [],
+        temperatureSeries: [],
+        currentTemperature: null,
+        waterLevelPercent: 0,
+        environment: {},
+        telemetry: {
+          nodeId: "",
+          nodeLabel: "",
+          gatewayId: "",
+          gatewayName: "",
+          batteryPercent: null,
+          rssi: null,
+          snr: null,
+          uplinkAt: null,
+          nodeStatus: "offline",
+          sensors: [],
+        },
+        network: {
+          gateway: { id: "ttn", name: "The Things Network" },
+          totals: { nodes: 0, online: 0, stale: 0, offline: 0 },
+          nodes: [],
+          events: [],
+        },
+        activeAlarms: [],
+        sensorCards: [],
+        waterEtaHours: null,
+        waterEtaConfidence: null,
+        waterDepletionRatePctPerHour: null,
+        waterRapidDrop: false,
+        waterRapidDropDelta: null,
+        logLines: [
+          "[WARN] Nessun sensore in anagrafica: usa il pannello #configurazione o l'API admin.",
+        ],
+      };
+    }
+    const want = String(zoneId || "").trim();
+    const resolved = resolvePostgresLocation(want, locs);
+    const effective = resolved ?? locs[0];
+    return pgStore.buildDashboardPayload(effective);
+  }
+  return buildLegacySnapshotPayload(zoneId);
+}
+
+async function resolveSnapshotZoneOrError(qZone) {
+  if (pgStore) {
+    const locs = await pgStore.listDistinctLocations();
+    if (!locs.length) {
+      return { ok: true, zoneId: "", empty: true };
+    }
+    const z = String(qZone || "").trim();
+    if (!z) return { ok: true, zoneId: locs[0], empty: false };
+    const resolved = resolvePostgresLocation(z, locs);
+    if (!resolved) return { ok: false, error: "invalid_zone_id" };
+    return { ok: true, zoneId: resolved, empty: false };
+  }
+  const zone = resolveZoneQuery(qZone);
+  if (!zone.ok) return { ok: false, error: zone.error };
+  return { ok: true, zoneId: zone.zoneId, empty: false };
 }
 
 const app = express();
@@ -965,6 +1075,11 @@ function protectDataApis(req, res, next) {
   return apiGate(req, res, next);
 }
 
+/**
+ * Ingest webhook: nessun accesso a PostgreSQL o logica applicativa finché non passa.
+ * Con INGEST_SECRET impostato serve l'header `x-ingest-secret` esattamente uguale al valore env;
+ * senza INGEST_SECRET ma con API_KEY, equivalente via `x-api-key`.
+ */
 function ingestAuth(req, res, next) {
   if (INGEST_SECRET) {
     if (req.get("x-ingest-secret") === INGEST_SECRET) return next();
@@ -998,6 +1113,7 @@ app.get("/readyz", (_req, res) => {
     env: NODE_ENV,
     requireAuth: REQUIRE_AUTH,
     hasIngestSecret: Boolean(INGEST_SECRET),
+    hasPostgres: Boolean(pgStore),
     wsPath: "/ws",
   });
 });
@@ -1082,7 +1198,24 @@ app.get("/api/ops/summary", limitApiRead, (_req, res) => {
   });
 });
 
-app.get("/api/zones", limitApiRead, (_req, res) => {
+app.get("/api/zones", limitApiRead, async (_req, res) => {
+  if (pgStore) {
+    const locs = await pgStore.listDistinctLocations();
+    return res.json({
+      dataProfile: "postgres",
+      zones: locs.map((loc) => ({
+        id: loc,
+        name: loc,
+        floor: "",
+        mapX: 50,
+        mapY: 50,
+        planPath: null,
+        kind: "area",
+        primaryNodeId: null,
+      })),
+      floors: [],
+    });
+  }
   res.json({
     zones: ZONES.map((x) => ({
       id: x.id,
@@ -1110,7 +1243,20 @@ app.get("/api/network/catalog", limitApiRead, (_req, res) => {
   });
 });
 
-app.get("/api/network/status", limitApiRead, (_req, res) => {
+app.get("/api/network/status", limitApiRead, async (_req, res) => {
+  if (pgStore) {
+    const locs = await pgStore.listDistinctLocations();
+    if (!locs.length) {
+      return res.json({
+        gateway: { id: "ttn", name: "The Things Network" },
+        totals: { nodes: 0, online: 0, stale: 0, offline: 0 },
+        nodes: [],
+        events: [],
+      });
+    }
+    const snap = await pgStore.buildDashboardPayload(locs[0]);
+    return res.json(snap.network);
+  }
   res.json(networkStatusSummary());
 });
 
@@ -1122,14 +1268,31 @@ app.get("/api/network/events", limitApiRead, (req, res) => {
   });
 });
 
-app.get("/api/dashboard/snapshot", limitApiRead, (req, res) => {
-  const zone = resolveZoneQuery(req.query.zoneId);
+app.get("/api/dashboard/snapshot", limitApiRead, async (req, res) => {
+  const zone = await resolveSnapshotZoneOrError(req.query.zoneId);
   if (!zone.ok) return res.status(400).json({ error: zone.error });
-  const { zoneId } = zone;
-  res.json(buildSnapshotPayload(zoneId));
+  const payload = await buildSnapshotPayload(zone.zoneId);
+  res.json(payload);
 });
 
-app.get("/api/history", limitApiRead, (req, res) => {
+app.get("/api/history", limitApiRead, async (req, res) => {
+  const fromIso = String(req.query.from || "").trim();
+  const toIso = String(req.query.to || "").trim();
+  if (!validateIsoRange(fromIso, toIso)) {
+    return res.status(400).json({ error: "invalid_time_range" });
+  }
+  const range =
+    fromIso || toIso ? { fromIso: fromIso || undefined, toIso: toIso || undefined } : {};
+
+  if (pgStore) {
+    const zone = await resolveSnapshotZoneOrError(req.query.zoneId);
+    if (!zone.ok) return res.status(400).json({ error: zone.error });
+    const { zoneId } = zone;
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+    const samples = await pgStore.historySamplesForLocation(zoneId, limit, range);
+    return res.json({ zoneId, nodeId: null, limit, points: [], samples });
+  }
+
   const zone = resolveZoneQuery(req.query.zoneId);
   if (!zone.ok) return res.status(400).json({ error: zone.error });
   const node = resolveNodeQuery(req.query.nodeId);
@@ -1140,27 +1303,13 @@ app.get("/api/history", limitApiRead, (req, res) => {
   const points = nodeId
     ? history.readNodeSeries(DATA_DIR, nodeId, limit)
     : history.readZoneSeries(DATA_DIR, zoneId, limit);
-  const fromIso = String(req.query.from || "").trim();
-  const toIso = String(req.query.to || "").trim();
-  if (!validateIsoRange(fromIso, toIso)) {
-    return res.status(400).json({ error: "invalid_time_range" });
-  }
-  const range =
-    fromIso || toIso ? { fromIso: fromIso || undefined, toIso: toIso || undefined } : {};
   const samples = nodeId
     ? history.readNodeHistoryPoints(DATA_DIR, nodeId, limit, range)
     : history.readZoneHistoryPoints(DATA_DIR, zoneId, limit, range);
   res.json({ zoneId, nodeId: nodeId || null, limit, points, samples });
 });
 
-app.get("/api/report/csv", limitReport, (req, res) => {
-  const zone = resolveZoneQuery(req.query.zoneId);
-  if (!zone.ok) return res.status(400).json({ error: zone.error });
-  const node = resolveNodeQuery(req.query.nodeId);
-  if (!node.ok) return res.status(400).json({ error: node.error });
-  const { zoneId } = zone;
-  const { nodeId } = node;
-  const cap = Math.min(15000, Math.max(50, Number(req.query.limit) || 4000));
+app.get("/api/report/csv", limitReport, async (req, res) => {
   const fromIso = String(req.query.from || "").trim();
   const toIso = String(req.query.to || "").trim();
   if (!validateIsoRange(fromIso, toIso)) {
@@ -1168,6 +1317,53 @@ app.get("/api/report/csv", limitReport, (req, res) => {
   }
   const range =
     fromIso || toIso ? { fromIso: fromIso || undefined, toIso: toIso || undefined } : {};
+  const cap = Math.min(15000, Math.max(50, Number(req.query.limit) || 4000));
+
+  if (pgStore) {
+    const zone = await resolveSnapshotZoneOrError(req.query.zoneId);
+    if (!zone.ok) return res.status(400).json({ error: zone.error });
+    const { zoneId } = zone;
+    const rows = await pgStore.csvRowsForLocation(zoneId, cap, range);
+    const safeName = String(zoneId).replace(/[^\w\-]+/g, "_").slice(0, 80) || "export";
+    res.setHeader("content-type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "content-disposition",
+      `attachment; filename="palestra-${safeName}-misure.csv"`
+    );
+    const header =
+      "timestamp_utc,dev_eui,sensor_name,location,type,value,rssi,snr,battery_pct\n";
+    const csvCell = (v) => {
+      if (v === null || v === undefined) return "";
+      const s = String(v);
+      if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, "\"\"")}"`;
+      return s;
+    };
+    const body = rows
+      .map((r) =>
+        [
+          new Date(r.timestamp).toISOString(),
+          r.dev_eui,
+          r.name,
+          r.location,
+          r.type,
+          r.value,
+          r.rssi ?? "",
+          r.snr ?? "",
+          r.battery ?? "",
+        ]
+          .map(csvCell)
+          .join(",")
+      )
+      .join("\n");
+    return res.send(header + body);
+  }
+
+  const zone = resolveZoneQuery(req.query.zoneId);
+  if (!zone.ok) return res.status(400).json({ error: zone.error });
+  const node = resolveNodeQuery(req.query.nodeId);
+  if (!node.ok) return res.status(400).json({ error: node.error });
+  const { zoneId } = zone;
+  const { nodeId } = node;
   const rows = nodeId
     ? history.readNodeHistoryPoints(DATA_DIR, nodeId, cap, range)
     : history.readZoneHistoryPoints(DATA_DIR, zoneId, cap, range);
@@ -1213,9 +1409,12 @@ function resolveZoneFromWsUrl(url) {
   try {
     const u = new URL(url, "http://localhost");
     const q = u.searchParams.get("zoneId");
+    if (pgStore) {
+      return q || "";
+    }
     return ZONES.some((z) => z.id === q) ? q : ZONES[0].id;
   } catch {
-    return ZONES[0].id;
+    return pgStore ? "" : ZONES[0].id;
   }
 }
 
@@ -1252,49 +1451,214 @@ wss.on("connection", (ws, req) => {
   const zoneId = resolveZoneFromWsUrl(req.url || "");
   ws._zoneId = zoneId;
 
-  const sendOnce = () => {
+  const sendOnce = async () => {
     if (ws.readyState !== 1) return;
-    const payload = buildSnapshotPayload(ws._zoneId);
-    ws.send(
-      JSON.stringify({
-        type: "snapshot",
-        zoneId: ws._zoneId,
-        data: payload,
-      })
-    );
+    try {
+      const payload = await buildSnapshotPayload(ws._zoneId);
+      ws.send(
+        JSON.stringify({
+          type: "snapshot",
+          zoneId: ws._zoneId,
+          data: payload,
+        })
+      );
+    } catch (err) {
+      logEvent("error", "ws_snapshot_failed", {
+        error: err && err.message ? err.message : String(err),
+      });
+    }
   };
 
-  sendOnce();
+  void sendOnce();
 });
 
-broadcastSnapshots = () => {
-  wss.clients.forEach((ws) => {
-    if (ws.readyState !== 1) return;
-    const payload = buildSnapshotPayload(ws._zoneId);
-    ws.send(
-      JSON.stringify({
-        type: "snapshot",
-        zoneId: ws._zoneId,
-        data: payload,
-      })
-    );
-  });
+broadcastSnapshots = async () => {
+  const clients = [...wss.clients];
+  await Promise.all(
+    clients.map(async (ws) => {
+      if (ws.readyState !== 1) return;
+      try {
+        const payload = await buildSnapshotPayload(ws._zoneId);
+        ws.send(
+          JSON.stringify({
+            type: "snapshot",
+            zoneId: ws._zoneId,
+            data: payload,
+          })
+        );
+      } catch (err) {
+        logEvent("error", "ws_broadcast_failed", {
+          error: err && err.message ? err.message : String(err),
+        });
+      }
+    })
+  );
 };
 
-app.post("/api/ingest/reading", limitIngest, ingestAuth, (req, res) => {
+app.post("/api/ingest/reading", limitIngest, ingestAuth, async (req, res) => {
+  if (pgStore) {
+    metrics.ingestRejected += 1;
+    return res.status(503).json({
+      error: "legacy_ingest_disabled",
+      hint: "Con DATABASE_URL configurato usa POST /api/ingest (webhook TTN).",
+    });
+  }
   const reading = normalizeReadingPayload(req.body || {});
   if (reading.error) {
     return res.status(400).json(reading);
   }
   applyManualReading(reading.zoneId, reading);
   metrics.ingestAccepted += 1;
-  broadcastSnapshots();
+  await broadcastSnapshots();
   return res.json({
     ok: true,
     zoneId: reading.zoneId,
     nodeId: reading.nodeId,
     gatewayId: reading.gatewayId,
   });
+});
+
+/**
+ * Webhook The Things Network: accetta il JSON uplink, valida dev_eui in anagrafica,
+ * decodifica il payload binario e inserisce una riga in measurements.
+ */
+app.post("/api/ingest", limitIngest, ingestAuth, async (req, res) => {
+  if (!pgStore) {
+    return res.status(503).json({
+      error: "database_required",
+      hint: "Imposta DATABASE_URL (PostgreSQL) per abilitare l'ingest TTN.",
+    });
+  }
+  try {
+    const result = await ingestTtnWebhook(req.body || {});
+    if (result.detail?.error === "unauthorized_device") {
+      logEvent("warn", "Dispositivo non autorizzato", {
+        devEui: result.detail?.devEui || "",
+      });
+      return res.status(200).json({
+        ok: false,
+        error: "unauthorized_device",
+        devEui: result.detail?.devEui,
+      });
+    }
+    if (!result.ok) {
+      metrics.ingestRejected += 1;
+      if (result.dbError && result.logMessage) {
+        logEvent("error", "ingest_database_error", {
+          message: result.logMessage,
+          ...(result.logExtra || {}),
+        });
+      }
+      return res.status(result.status).json(result.detail);
+    }
+    metrics.ingestAccepted += 1;
+    await broadcastSnapshots();
+    return res.status(200).json(result.detail);
+  } catch (err) {
+    metrics.ingestRejected += 1;
+    logEvent("error", "ingest_ttn_failed", {
+      error: err && err.message ? err.message : String(err),
+    });
+    return res.status(500).json({ error: "ingest_failed" });
+  }
+});
+
+app.get("/api/admin/sensors", limitApiRead, async (_req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  try {
+    const sensors = await pgStore.listSensorsAll();
+    res.json({ sensors });
+  } catch (err) {
+    logEvent("error", "admin_list_sensors", {
+      error: err && err.message ? err.message : String(err),
+    });
+    res.status(500).json({ error: "db_error" });
+  }
+});
+
+function adminSensorErrorResponse(err) {
+  const code = err && err.code ? String(err.code) : "";
+  const hints = {
+    invalid_dev_eui: "Il DevEUI deve essere esattamente 16 caratteri esadecimali (0–9, A–F).",
+    empty_sensor_name: "Il nome del sensore non può essere vuoto.",
+    empty_sensor_location: "La posizione (zona) non può essere vuota.",
+    empty_sensor_type: "Il tipo sensore non può essere vuoto.",
+    invalid_threshold:
+      "Le soglie min/max accettano solo numeri (es. 18 oppure 22.5). Lasciare vuoto se non servono.",
+    dev_eui_duplicate:
+      "Esiste già un sensore con questo DevEUI. Ogni dispositivo LoRaWAN deve avere un DevEUI univoco nel database.",
+  };
+  if (code === "invalid_dev_eui" || code === "empty_sensor_name" || code === "empty_sensor_location" || code === "empty_sensor_type" || code === "invalid_threshold") {
+    return { status: 400, body: { error: code, hint: hints[code] || code } };
+  }
+  if (code === "dev_eui_duplicate") {
+    return { status: 409, body: { error: code, hint: hints.dev_eui_duplicate } };
+  }
+  return null;
+}
+
+app.post("/api/admin/sensors", limitApiRead, async (req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  try {
+    const row = await pgStore.insertSensor(req.body || {});
+    await broadcastSnapshots();
+    res.status(201).json(row);
+  } catch (err) {
+    const mapped = adminSensorErrorResponse(err);
+    if (mapped) return res.status(mapped.status).json(mapped.body);
+    const msg = err && err.message ? err.message : String(err);
+    if (/unique/i.test(msg)) {
+      return res.status(409).json({
+        error: "dev_eui_duplicate",
+        hint:
+          "Esiste già un sensore con questo DevEUI. Ogni dispositivo deve avere un DevEUI univoco nel database.",
+      });
+    }
+    logEvent("error", "admin_insert_sensor", { error: msg });
+    res.status(500).json({ error: "db_error" });
+  }
+});
+
+app.patch("/api/admin/sensors/:id", limitApiRead, async (req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
+  try {
+    const row = await pgStore.updateSensor(id, req.body || {});
+    if (!row) return res.status(404).json({ error: "not_found" });
+    await broadcastSnapshots();
+    res.json(row);
+  } catch (err) {
+    const mapped = adminSensorErrorResponse(err);
+    if (mapped) return res.status(mapped.status).json(mapped.body);
+    const msg = err && err.message ? err.message : String(err);
+    if (/unique/i.test(msg)) {
+      return res.status(409).json({
+        error: "dev_eui_duplicate",
+        hint:
+          "Esiste già un sensore con questo DevEUI. Ogni dispositivo deve avere un DevEUI univoco nel database.",
+      });
+    }
+    logEvent("error", "admin_update_sensor", { error: msg });
+    res.status(500).json({ error: "db_error" });
+  }
+});
+
+app.delete("/api/admin/sensors/:id", limitApiRead, async (req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
+  try {
+    const ok = await pgStore.deleteSensor(id);
+    if (!ok) return res.status(404).json({ error: "not_found" });
+    await broadcastSnapshots();
+    res.json({ ok: true });
+  } catch (err) {
+    logEvent("error", "admin_delete_sensor", {
+      error: err && err.message ? err.message : String(err),
+    });
+    res.status(500).json({ error: "db_error" });
+  }
 });
 
 app.use((err, _req, res, next) => {
@@ -1374,10 +1738,14 @@ function evaluateOpsAlerts() {
 }
 
 const ticker = setInterval(() => {
-  if (!DISABLE_AUTO_TICK) {
+  if (!DISABLE_AUTO_TICK && !pgStore) {
     ZONES.forEach((z) => tickZone(z.id));
   }
-  broadcastSnapshots();
+  broadcastSnapshots().catch((err) =>
+    logEvent("error", "broadcast_snapshots", {
+      error: err && err.message ? err.message : String(err),
+    })
+  );
 }, 2000);
 const opsAlertTicker = setInterval(evaluateOpsAlerts, OPS_ALERT_CHECK_EVERY_MS);
 
@@ -1392,50 +1760,81 @@ server.on("error", (err) => {
   process.exit(1);
 });
 
-server.listen(PORT, () => {
-  logEvent("info", "server_started", {
-    port: PORT,
-    dataDir: DATA_DIR,
-    env: NODE_ENV,
-    requireAuth: REQUIRE_AUTH,
-    hasApiKey: Boolean(API_KEY),
-    hasIngestSecret: Boolean(INGEST_SECRET),
-  });
-  console.log(`Sensor gateway su http://localhost:${PORT}`);
-  console.log(`  Dati persistenti in: ${DATA_DIR}`);
-  console.log(`  REST  GET /api/zones`);
-  console.log(`  REST  GET /api/dashboard/snapshot?zoneId=...`);
-  console.log(`  REST  GET /api/history?zoneId=...&limit=200&from=&to=`);
-  console.log(`  REST  GET /api/report/csv?zoneId=...&limit=4000&from=&to=`);
-  console.log(`  REST  GET /api/ops/summary`);
-  console.log(`  REST  GET /health · /readyz · /metrics`);
-  console.log(`  WS    ws://localhost:${PORT}/ws?zoneId=...`);
-  if (API_KEY) {
-    console.log("  API key attiva (REST/ingest via header x-api-key)");
+async function startHttpServer() {
+  if (pgStore) {
+    const dbCheck = await pgStore.verifyDatabaseOnStartup();
+    if (dbCheck.ok) {
+      console.log("✅ Connessione al database PostgreSQL riuscita");
+    } else {
+      console.log("❌ Errore di connessione al database");
+      const err = dbCheck.error;
+      const detail = err && err.message ? err.message : String(err);
+      console.error(`   ${detail}`);
+      logEvent("error", "postgres_startup_failed", { message: detail });
+    }
   }
-  if (REQUIRE_AUTH) {
-    console.log("  Autenticazione attiva (POST /api/auth/login · password da AUTH_PASSWORD)");
-  }
-  if (NOTIFY_WEBHOOK) {
-    console.log(
-      "  Webhook allarme (acqua + soglie ambientali env_threshold) configurato"
-    );
-  }
-  console.log("  POST /api/ingest/reading (payload legacy o LoRa-ready)");
-  if (!INGEST_SECRET && !API_KEY) {
-    logEvent("warn", "ingest_open_warning", {
-      msg: "Ingest aperto: imposta INGEST_SECRET o API_KEY in produzione.",
+
+  server.listen(PORT, () => {
+    logEvent("info", "server_started", {
+      port: PORT,
+      dataDir: DATA_DIR,
+      env: NODE_ENV,
+      requireAuth: REQUIRE_AUTH,
+      hasApiKey: Boolean(API_KEY),
+      hasIngestSecret: Boolean(INGEST_SECRET),
     });
-  }
-  if (DISABLE_AUTO_TICK) {
-    console.log("  Simulazione random DISATTIVATA (DISABLE_AUTO_TICK=true) — solo ingest/manuale");
-  }
+    console.log(`Sensor gateway su http://localhost:${PORT}`);
+    console.log(`  Dati persistenti in: ${DATA_DIR}`);
+    console.log(`  REST  GET /api/zones`);
+    console.log(`  REST  GET /api/dashboard/snapshot?zoneId=...`);
+    console.log(`  REST  GET /api/history?zoneId=...&limit=200&from=&to=`);
+    console.log(`  REST  GET /api/report/csv?zoneId=...&limit=4000&from=&to=`);
+    console.log(`  REST  GET /api/ops/summary`);
+    console.log(`  REST  GET /health · /readyz · /metrics`);
+    console.log(`  WS    ws://localhost:${PORT}/ws?zoneId=...`);
+    if (API_KEY) {
+      console.log("  API key attiva (REST/ingest via header x-api-key)");
+    }
+    if (REQUIRE_AUTH) {
+      console.log("  Autenticazione attiva (POST /api/auth/login · password da AUTH_PASSWORD)");
+    }
+    if (NOTIFY_WEBHOOK) {
+      console.log(
+        "  Webhook allarme (acqua + soglie ambientali env_threshold) configurato"
+      );
+    }
+    console.log("  POST /api/ingest/reading (payload legacy o LoRa-ready)");
+    if (pgStore) {
+      console.log("  POST /api/ingest (webhook The Things Network · richiede DATABASE_URL)");
+      console.log("  REST  CRUD /api/admin/sensors (gestione anagrafica sensori)");
+    }
+    if (!INGEST_SECRET && !API_KEY) {
+      logEvent("warn", "ingest_open_warning", {
+        msg: "Ingest aperto: imposta INGEST_SECRET o API_KEY in produzione.",
+      });
+    }
+    if (DISABLE_AUTO_TICK) {
+      console.log("  Simulazione random DISATTIVATA (DISABLE_AUTO_TICK=true) — solo ingest/manuale");
+    }
+  });
+}
+
+void startHttpServer().catch((err) => {
+  console.error("[fatal] avvio server:", err && err.message ? err.message : err);
+  process.exit(1);
 });
 
-function shutdown(signal) {
+async function shutdown(signal) {
   logEvent("info", "shutdown_start", { signal });
   clearInterval(ticker);
   clearInterval(opsAlertTicker);
+  if (pgStore) {
+    try {
+      await pgStore.closePool();
+    } catch {
+      /* ignore */
+    }
+  }
   wss.clients.forEach((ws) => {
     try {
       ws.close(1001, "server_shutdown");
@@ -1450,8 +1849,12 @@ function shutdown(signal) {
   setTimeout(() => process.exit(1), 5000).unref();
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});
 process.on("unhandledRejection", (reason) => {
   logEvent("error", "unhandled_rejection", {
     reason: reason && reason.message ? reason.message : String(reason),

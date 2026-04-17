@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Cpu, Radio, Battery, Clock3, Router, Search, ArrowDownAZ } from "lucide-react";
+import { formatUplinkAgoOrLocal } from "../utils/localTime";
 import "./NetworkStatusPanel.css";
 
 function fmt(value, digits = 0, suffix = "") {
@@ -8,14 +9,7 @@ function fmt(value, digits = 0, suffix = "") {
 }
 
 function fmtWhen(value) {
-  if (!value) return "—";
-  const ts = new Date(value).getTime();
-  if (!Number.isFinite(ts)) return "—";
-  const deltaSec = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (deltaSec < 60) return `${deltaSec}s fa`;
-  const min = Math.round(deltaSec / 60);
-  if (min < 60) return `${min} min fa`;
-  return new Date(value).toLocaleTimeString("it-IT");
+  return formatUplinkAgoOrLocal(value);
 }
 
 function statusLabel(status) {
@@ -56,11 +50,21 @@ export default function NetworkStatusPanel({
       statusFilter === "all"
         ? list
         : list.filter((n) => String(n.status || "") === statusFilter);
+    const norm = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/\p{M}/gu, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
     const byQuery = !q
       ? byStatus
       : byStatus.filter((n) => {
-          const hay = `${n.label || ""} ${n.id || ""} ${n.zoneName || ""} ${n.zoneId || ""}`.toLowerCase();
-          return hay.includes(q);
+          const hayRaw = `${n.label || ""} ${n.id || ""} ${n.zoneName || ""} ${n.zoneId || ""}`;
+          const hay = norm(hayRaw);
+          const qq = norm(q);
+          return hay.includes(qq);
         });
 
     const sevScore = (n) => {

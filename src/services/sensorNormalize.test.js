@@ -18,6 +18,21 @@ describe("normalizeDashboardPayload", () => {
     expect(out.labels).toHaveLength(out.values.length);
   });
 
+  it("formats chart axis labels from ISO UTC using browser local time", () => {
+    const iso = "2026-06-01T15:30:00.000Z";
+    const out = normalizeDashboardPayload({
+      temperatureSeries: [{ iso, value: 22.1 }],
+      waterLevelPercent: 50,
+    });
+    const want = new Date(iso).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    expect(out.labels).toEqual([want]);
+    expect(out.values).toEqual([22.1]);
+  });
+
   it("falls back to sane defaults for missing series", () => {
     const out = normalizeDashboardPayload({
       waterLevelPercent: 12,
@@ -25,7 +40,7 @@ describe("normalizeDashboardPayload", () => {
     });
 
     expect(out.labels).toEqual(["—"]);
-    expect(out.values).toEqual([0]);
+    expect(out.values).toEqual([28]);
     expect(out.water).toBe(12);
     expect(out.activeAlarms).toHaveLength(1);
   });

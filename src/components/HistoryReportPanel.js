@@ -17,6 +17,7 @@ import {
   reportCsvUrl,
   toUserErrorMessage,
 } from "../services/sensorApi";
+import { formatLocalDateTimeShort, formatLocalTimeHms } from "../utils/localTime";
 import "./HistoryReportPanel.css";
 
 ChartJS.register(
@@ -89,9 +90,7 @@ export default function HistoryReportPanel({
 
   const chartData = useMemo(() => {
     const rows = samples.length ? samples : [];
-    const labels = rows.map((r) =>
-      r.iso ? String(r.iso).slice(11, 19) : "—"
-    );
+    const labels = rows.map((r) => (r.iso ? formatLocalTimeHms(r.iso) : "—"));
     const temps = rows.map((r) => (Number.isFinite(Number(r.temp)) ? Number(r.temp) : null));
     return {
       labels,
@@ -229,7 +228,7 @@ export default function HistoryReportPanel({
           <table className="history-panel__table">
             <thead>
               <tr>
-                <th>ISO</th>
+                <th>Data/ora (locale)</th>
                 <th>°C</th>
                 <th>RH%</th>
                 <th>CO₂</th>
@@ -239,7 +238,7 @@ export default function HistoryReportPanel({
             <tbody>
               {samples.slice(-6).map((r, idx) => (
                 <tr key={`${r.iso || "row"}-${idx}`}>
-                  <td>{String(r.iso).slice(11, 22)}</td>
+                  <td>{r.iso ? formatLocalDateTimeShort(r.iso) : "—"}</td>
                   <td>{r.temp != null ? Number(r.temp).toFixed(1) : "—"}</td>
                   <td>{r.humidity != null ? Math.round(r.humidity) : "—"}</td>
                   <td>{r.co2 != null ? Math.round(r.co2) : "—"}</td>

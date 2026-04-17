@@ -14,10 +14,18 @@ import MainTabs from "./components/MainTabs";
 import HistoryReportPanel from "./components/HistoryReportPanel";
 import NetworkStatusPanel from "./components/NetworkStatusPanel";
 import NodeDetailPanel from "./components/NodeDetailPanel";
+import SensorDynamicGrid from "./components/SensorDynamicGrid";
+import ConfigurazionePanel from "./components/ConfigurazionePanel";
 import { MOCK_ZONES } from "./services/mockSensors";
 import { useDashboardSensors } from "./hooks/useDashboardSensors";
 import { getStoredSessionToken, logoutFromGateway } from "./services/sensorApi";
 import "./App.css";
+
+/** Supporta `#configurazione` e `/#configurazione` come richiesto. */
+function isConfigurazioneHash(hash) {
+  const raw = String(hash || "").replace(/^#/, "").trim();
+  return raw === "configurazione" || raw === "/configurazione";
+}
 
 const facilityLine =
   (process.env.REACT_APP_FACILITY_LINE || "").trim() ||
@@ -29,6 +37,13 @@ export default function App() {
   const [mainTab, setMainTab] = useState("dashboard");
   const [mapFloor, setMapFloor] = useState(MOCK_ZONES[0].floor);
   const [showFloorPlan, setShowFloorPlan] = useState(false);
+  const [routeHash, setRouteHash] = useState(() => window.location.hash || "");
+
+  useEffect(() => {
+    const onHash = () => setRouteHash(window.location.hash || "");
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   const {
     labels,
@@ -63,14 +78,19 @@ export default function App() {
     authRequired,
     dashboardLoading,
     apiErrorHint,
+    sensorCards,
+    dataProfile,
   } = useDashboardSensors(zoneId, authEpoch);
 
   useEffect(() => {
-    if (!zones?.length) return;
+    if (!zones?.length) {
+      if (useApi) setZoneId("");
+      return;
+    }
     if (!zones.some((z) => z.id === zoneId)) {
       setZoneId(zones[0].id);
     }
-  }, [zones, zoneId]);
+  }, [zones, zoneId, useApi]);
 
   useEffect(() => {
     const z = zones.find((zz) => zz.id === zoneId);
@@ -99,6 +119,28 @@ export default function App() {
     "La dashboard va aperta su http://localhost:3000 (npm start o npm run stack). Il gateway API resta sulla porta 4000: se vedi ERR_CONNECTION_REFUSED, avvia lo stack oppure in un altro terminale npm run server.";
 
   const mapZones = siteZones?.length ? siteZones : zones;
+
+  const showAdminNav = useApi && dataProfile === "postgres";
+
+  const postgresNoSensors =
+    dataProfile === "postgres" && !dashboardLoading && sensorCards.length === 0;
+  const emptyDbMessage =
+    zones.length === 0
+      ? "Nessun sensore registrato. Vai in Configurazione (#/configurazione)."
+      : "Nessun sensore in questa posizione. Controlla l’anagrafica in Configurazione.";
+
+  if (isConfigurazioneHash(routeHash)) {
+    return (
+      <div className="app-shell">
+        <ConfigurazionePanel
+          onBack={() => {
+            window.location.hash = "";
+            setRouteHash("");
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -136,7 +178,15 @@ export default function App() {
           />
         </div>
         <div className="area-tabs">
-          <MainTabs value={mainTab} onChange={setMainTab} />
+          <MainTabs
+            value={mainTab}
+            onChange={setMainTab}
+            showConfigNav={showAdminNav}
+            onOpenConfig={() => {
+              window.location.hash = "#/configurazione";
+              setRouteHash("#/configurazione");
+            }}
+          />
         </div>
         <div className="area-alarms">
           <AlarmBar alarms={activeAlarms} />
@@ -180,30 +230,47 @@ export default function App() {
             ) : null}
             <div className="area-chart">
               <TemperatureChart
-                labels={labels.length ? labels : ["—"]}
-                values={values.length ? values : [28]}
-                currentTemp={lastTemp}
+                labels={labels}
+                values={values}
+                currentTemp={postgresNoSensors ? null : lastTemp}
                 loading={dashboardLoading}
+                emptyHint={postgresNoSensors ? emptyDbMessage : ""}
               />
             </div>
             <div className="area-rightcol">
-              <WaterLevelGauge
-                level={water}
-                loading={dashboardLoading}
-                waterEtaHours={waterEtaHours}
-                waterEtaConfidence={waterEtaConfidence}
-                waterDepletionRatePctPerHour={waterDepletionRatePctPerHour}
-                waterRapidDrop={waterRapidDrop}
-                waterRapidDropDelta={waterRapidDropDelta}
-              />
-              <EnvironmentalPanel
-                humidityPercent={humidityPercent}
-                co2Ppm={co2Ppm}
-                vocIndex={vocIndex}
-                lightLux={lightLux}
-                flowLmin={flowLmin}
-                loading={dashboardLoading}
-              />
+              {postgresNoSensors ? (
+                <section className="env-panel glass-panel animate-in animate-in-delay-2">
+                  <p className="mono" style={{ padding: "1.25rem", color: "#d4d4d8", lineHeight: 1.5 }}>
+                    {emptyDbMessage}
+                  </p>
+                </section>
+              ) : (
+                <>
+                  {water != null ? (
+                    <WaterLevelGauge
+                      level={water}
+                      loading={dashboardLoading}
+                      waterEtaHours={waterEtaHours}
+                      waterEtaConfidence={waterEtaConfidence}
+                      waterDepletionRatePctPerHour={waterDepletionRatePctPerHour}
+                      waterRapidDrop={waterRapidDrop}
+                      waterRapidDropDelta={waterRapidDropDelta}
+                    />
+                  ) : null}
+                  {sensorCards.length > 0 ? (
+                    <SensorDynamicGrid cards={sensorCards} loading={dashboardLoading} />
+                  ) : (
+                    <EnvironmentalPanel
+                      humidityPercent={humidityPercent}
+                      co2Ppm={co2Ppm}
+                      vocIndex={vocIndex}
+                      lightLux={lightLux}
+                      flowLmin={flowLmin}
+                      loading={dashboardLoading}
+                    />
+                  )}
+                </>
+              )}
             </div>
             <div className="area-terminal">
               <HackerTerminal lines={logs} />

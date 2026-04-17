@@ -11,6 +11,10 @@ body,
   margin: 0;
 }
 
+html {
+  overflow-x: hidden;
+}
+
 body {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   background: #0a0a0a;

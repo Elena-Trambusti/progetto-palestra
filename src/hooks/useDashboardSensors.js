@@ -93,6 +93,8 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
   const [values, setValues] = useState([]);
   const [lastTemp, setLastTemp] = useState(null);
   const [water, setWater] = useState(72);
+  const [sensorCards, setSensorCards] = useState([]);
+  const [dataProfile, setDataProfile] = useState(null);
   const [waterEtaHours, setWaterEtaHours] = useState(null);
   const [waterEtaConfidence, setWaterEtaConfidence] = useState(null);
   const [waterDepletionRatePctPerHour, setWaterDepletionRatePctPerHour] =
@@ -152,7 +154,9 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
       setLabels(snap.labels);
       setValues(snap.values);
       setLastTemp(snap.lastTemp);
-      setWater(snap.water);
+      setWater(
+        snap.water != null && Number.isFinite(Number(snap.water)) ? snap.water : null
+      );
       setWaterEtaHours(snap.waterEtaHours ?? null);
       setWaterEtaConfidence(snap.waterEtaConfidence ?? null);
       setWaterDepletionRatePctPerHour(snap.waterDepletionRatePctPerHour ?? null);
@@ -171,6 +175,8 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
       setVocIndex(snap.vocIndex != null && Number.isFinite(snap.vocIndex) ? snap.vocIndex : null);
       setLightLux(snap.lightLux != null && Number.isFinite(snap.lightLux) ? snap.lightLux : null);
       setFlowLmin(snap.flowLmin != null && Number.isFinite(snap.flowLmin) ? snap.flowLmin : null);
+      setSensorCards(Array.isArray(snap.sensorCards) ? snap.sensorCards : []);
+      setDataProfile(snap.dataProfile != null ? snap.dataProfile : null);
       setActiveAlarms(Array.isArray(snap.activeAlarms) ? snap.activeAlarms : []);
       setSiteZones(Array.isArray(snap.siteZones) ? snap.siteZones : []);
       setNetworkNodes(snap.network?.nodes || []);
@@ -217,9 +223,14 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
     (async () => {
       setZonesLoading(true);
       try {
-        const { zones: list, floors: fl } = await fetchZonesCatalog();
+        const { zones: list, floors: fl, dataProfile: zonesProfile } =
+          await fetchZonesCatalog();
         if (cancelled) return;
-        setZones(list.length ? list : MOCK_ZONES);
+        if (list.length || zonesProfile === "postgres") {
+          setZones(list);
+        } else {
+          setZones(MOCK_ZONES);
+        }
         if (fl.length) {
           setFloorsCatalog(fl);
         }
@@ -653,5 +664,7 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
     authRequired,
     dashboardLoading,
     apiErrorHint,
+    sensorCards,
+    dataProfile,
   };
 }

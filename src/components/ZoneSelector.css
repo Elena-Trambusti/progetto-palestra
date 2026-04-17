@@ -1,5 +1,8 @@
 .zone-selector {
-  padding: 0.85rem 1.1rem;
+  padding: clamp(0.65rem, 2.5vw, 1.1rem);
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .zone-selector__head {
@@ -43,16 +46,26 @@
 }
 
 .zone-selector__select {
-  flex: 1;
-  min-width: 200px;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;
   padding: 0.55rem 0.75rem;
   border-radius: 10px;
   border: 1px solid rgba(59, 130, 246, 0.35);
   background: rgba(10, 10, 10, 0.55);
   color: #e4e4e7;
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   outline: none;
   box-shadow: 0 0 16px rgba(59, 130, 246, 0.12);
+}
+
+@media (min-width: 520px) {
+  .zone-selector__select {
+    min-width: 200px;
+    width: auto;
+  }
 }
 
 .zone-selector__select:focus-visible {

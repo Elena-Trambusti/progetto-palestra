@@ -1,8 +1,14 @@
 /**
- * Client sensori:
- * - Se `REACT_APP_SENSOR_API_URL` è vuota, le richieste vanno a `/api` (proxy CRA → server).
- * - Header opzionale `x-api-key` se `REACT_APP_SENSOR_API_KEY`.
- * - Bearer + cookie sessione se login effettuato (`sessionStorage`).
+ * Client sensori — tutte le chiamate passano da `sensorFetch` / `apiUrl`.
+ *
+ * Ambiente:
+ * - Sviluppo: lascia `REACT_APP_SENSOR_API_URL` vuota → path relativi `/api` e `/ws`
+ *   (proxy verso `REACT_APP_PROXY_TARGET`, default http://localhost:4000).
+ * - Produzione (es. frontend su Render + API su altro servizio): imposta
+ *   `REACT_APP_SENSOR_API_URL=https://tuo-backend.onrender.com` (senza slash finale).
+ *   Opzionale: `REACT_APP_SENSOR_WS_URL=wss://tuo-backend.onrender.com/ws` se il WS non è sullo stesso host.
+ *
+ * Auth: `REACT_APP_SENSOR_API_KEY` (header x-api-key) e/o login `Bearer` in sessionStorage.
  */
 
 import { normalizeDashboardPayload } from "./sensorNormalize";
@@ -75,6 +81,30 @@ export class ApiHttpError extends Error {
 
 export function toUserErrorMessage(err) {
   const code = String(err?.code || err?.message || "").toLowerCase();
+  if (code === "dev_eui_duplicate" || code === "dev_eui_conflict") {
+    if (err instanceof ApiHttpError && err.hint) return err.hint;
+    return "Esiste già un sensore con questo DevEUI. Ogni dispositivo deve avere un DevEUI univoco.";
+  }
+  if (code === "invalid_threshold") {
+    if (err instanceof ApiHttpError && err.hint) return err.hint;
+    return "Le soglie min/max accettano solo numeri (es. 18 o 22.5), oppure lasciale vuote.";
+  }
+  if (code === "empty_sensor_name") {
+    if (err instanceof ApiHttpError && err.hint) return err.hint;
+    return "Il nome del sensore non può essere vuoto.";
+  }
+  if (code === "empty_sensor_location") {
+    if (err instanceof ApiHttpError && err.hint) return err.hint;
+    return "La posizione (zona) non può essere vuota.";
+  }
+  if (code === "empty_sensor_type") {
+    if (err instanceof ApiHttpError && err.hint) return err.hint;
+    return "Il tipo sensore non può essere vuoto.";
+  }
+  if (code === "invalid_dev_eui") {
+    if (err instanceof ApiHttpError && err.hint) return err.hint;
+    return "Il DevEUI deve essere di 16 caratteri esadecimali.";
+  }
   if (code === "invalid_node_id") {
     return "Nodo non valido: seleziona un nodo esistente dal catalogo.";
   }
@@ -93,6 +123,7 @@ export function toUserErrorMessage(err) {
   if (code === "gateway_timeout") {
     return "Timeout gateway: la richiesta ha impiegato troppo tempo.";
   }
+  if (err instanceof ApiHttpError && err.hint) return err.hint;
   if (typeof err?.message === "string" && err.message.trim()) return err.message;
   return "Errore API non previsto.";
 }
@@ -157,6 +188,8 @@ export async function fetchZonesCatalog() {
   const res = await sensorFetch("/api/zones");
   const json = await handleJsonResponse(res);
   const zones = Array.isArray(json.zones) ? json.zones : [];
+  const dataProfile =
+    typeof json.dataProfile === "string" ? json.dataProfile : null;
   const mappedZones = zones.map((z) => ({
     id: String(z.id),
     name: String(z.name ?? z.id),
@@ -179,7 +212,7 @@ export async function fetchZonesCatalog() {
         ? f.planPath
         : planPathForFloorId(f.id),
   }));
-  return { zones: mappedZones, floors };
+  return { zones: mappedZones, floors, dataProfile };
 }
 
 /** @deprecated usare fetchZonesCatalog */
@@ -213,6 +246,36 @@ export async function fetchHistorySamples(zoneId, limit = 200, from = "", to = "
   const res = await sensorFetch(`/api/history?${q.toString()}`);
   const json = await handleJsonResponse(res);
   return Array.isArray(json.samples) ? json.samples : [];
+}
+
+export async function fetchAdminSensors() {
+  const res = await sensorFetch("/api/admin/sensors");
+  return handleJsonResponse(res);
+}
+
+export async function createAdminSensor(body) {
+  const res = await sensorFetch("/api/admin/sensors", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return handleJsonResponse(res);
+}
+
+export async function updateAdminSensor(id, body) {
+  const res = await sensorFetch(`/api/admin/sensors/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return handleJsonResponse(res);
+}
+
+export async function deleteAdminSensor(id) {
+  const res = await sensorFetch(`/api/admin/sensors/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  return handleJsonResponse(res);
 }
 
 export function reportCsvUrl(zoneId, limit = 4000, from = "", to = "") {

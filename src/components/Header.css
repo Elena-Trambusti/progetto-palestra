@@ -106,16 +106,20 @@
 .header__logout {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
-  padding: 0.35rem 0.65rem;
+  min-height: 44px;
+  padding: 0.45rem 0.85rem;
   border-radius: 8px;
-  font-size: 0.58rem;
+  font-size: 0.62rem;
   font-weight: 600;
   letter-spacing: 0.1em;
   color: #e4e4e7;
   background: rgba(39, 39, 42, 0.85);
   border: 1px solid rgba(113, 113, 122, 0.45);
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .header__logout:hover {

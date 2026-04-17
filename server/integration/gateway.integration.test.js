@@ -85,6 +85,30 @@ test("health and ingest auth flow with ingest secret", async () => {
       body: JSON.stringify({ zoneId: "serbatoio-idrico", temperatureC: 29.4 }),
     });
     assert.equal(noSecret.status, 401);
+    const noSecretBody = await noSecret.json();
+    assert.equal(noSecretBody.error, "ingest_unauthorized");
+
+    const wrongSecretReading = await fetch(`${baseUrl}/api/ingest/reading`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-ingest-secret": "wrong-not-matching-env",
+      },
+      body: JSON.stringify({ zoneId: "serbatoio-idrico", temperatureC: 29.4 }),
+    });
+    assert.equal(wrongSecretReading.status, 401);
+    assert.equal((await wrongSecretReading.json()).error, "ingest_unauthorized");
+
+    const wrongSecretTtn = await fetch(`${baseUrl}/api/ingest`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-ingest-secret": "wrong-not-matching-env",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(wrongSecretTtn.status, 401);
+    assert.equal((await wrongSecretTtn.json()).error, "ingest_unauthorized");
 
     const okIngest = await fetch(`${baseUrl}/api/ingest/reading`, {
       method: "POST",
