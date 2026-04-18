@@ -16,10 +16,12 @@
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
     "http-proxy-middleware": "^2.0.9",
+    "patch-package": "^8.0.1",
     "start-server-and-test": "^2.1.5",
     "yaml": "^2.8.3"
   },
   "scripts": {
+    "postinstall": "patch-package",
     "start": "node server/index.js",
     "start:frontend": "react-scripts start",
     "build": "react-scripts build",
