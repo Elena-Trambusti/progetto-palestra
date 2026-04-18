@@ -22,6 +22,7 @@
   },
   "scripts": {
     "postinstall": "patch-package",
+    "telegram:test": "node scripts/telegram-test-send.js",
     "start": "node server/index.js",
     "start:frontend": "react-scripts start",
     "build": "react-scripts build",
