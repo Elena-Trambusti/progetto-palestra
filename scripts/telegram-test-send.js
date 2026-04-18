@@ -12,8 +12,11 @@ const path = require("path");
 const rootDir = path.join(__dirname, "..");
 const dotenv = require(path.join(rootDir, "server", "node_modules", "dotenv"));
 
+// Ordine: i file dopo sovrascrivono i precedenti. Su Windows spesso si crea per errore `.env.txt`.
 dotenv.config({ path: path.join(rootDir, ".env") });
 dotenv.config({ path: path.join(rootDir, "server", ".env") });
+dotenv.config({ path: path.join(rootDir, ".env.txt") });
+dotenv.config({ path: path.join(rootDir, "server", ".env.txt") });
 
 const { sendTelegramMessage } = require(path.join(rootDir, "server", "lib", "telegram"));
 
@@ -27,7 +30,9 @@ async function main() {
   if (r.skipped) {
     console.error(
       "Mancano TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID.\n" +
-        "Copiali da Render in un file .env nella root del progetto (o in server/.env) e riprova."
+        "Mettile in server/.env (o progetto/.env). Su Windows, se il file si chiama .env.txt, va bene:\n" +
+        "  Esplora file → Visualizza → Estensioni nomi file → rinomina .env.txt in .env\n" +
+        "oppure lascia .env.txt: ora lo script lo legge comunque."
     );
     process.exit(1);
   }
