@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build su Render (Linux): evita comandi npm spezzati nel dashboard e riduce OOM sul CRA.
-# TRIGGER REBUILD: 2026-04-19-1600 - forza rebuild dopo miglioramenti
+# TRIGGER REBUILD: 2026-04-19-1634 - fix static files issue
 set -euo pipefail
 
 echo "[BUILD] ==========================================="
