@@ -1562,49 +1562,7 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
     }
   }
   
-  // Se il frontend manca, proviamo a compilarlo on-the-fly
-  if (!frontendRoot && IS_PROD) {
-    console.log("[static] Frontend mancante. Tentativo build automatico...");
-    try {
-      const { execSync } = require("child_process");
-      // Prima installa le dipendenze root se mancano
-      const rootNodeModules = path.join(projectRoot, "node_modules");
-      const hasReactScripts = fs.existsSync(path.join(rootNodeModules, ".bin", "react-scripts"));
-      if (!hasReactScripts) {
-        console.log("[static] react-scripts mancante. Installazione dipendenze root...");
-        execSync("npm install --include=dev --no-audit --no-fund", {
-          cwd: projectRoot,
-          stdio: "inherit",
-          env: { ...process.env, NODE_ENV: "development" },
-        });
-      }
-      // Usa il percorso esplicito di react-scripts
-      const reactScriptsBin = path.join(rootNodeModules, ".bin", "react-scripts");
-      execSync(`${reactScriptsBin} build`, {
-        cwd: projectRoot,
-        stdio: "inherit",
-        env: {
-          ...process.env,
-          GENERATE_SOURCEMAP: "false",
-          DISABLE_ESLINT_PLUGIN: "true",
-          INLINE_RUNTIME_CHUNK: "false",
-          NODE_OPTIONS: "--max-old-space-size=3072",
-        },
-      });
-      // Ricontrolla dopo il build
-      for (const testPath of possiblePaths) {
-        const testIndex = path.join(testPath, "index.html");
-        if (fs.existsSync(testIndex)) {
-          frontendRoot = testPath;
-          indexPath = testIndex;
-          console.log(`[static] Frontend compilato con successo in: ${frontendRoot}`);
-          break;
-        }
-      }
-    } catch (err) {
-      console.error("[static] Build automatico fallito:", err.message);
-    }
-  }
+  // Non fare build at startup: supererebbe il timeout di Render.
   
   if (!frontendRoot) {
     console.warn("[static] Nessun frontend disponibile. Solo API/WebSocket attivo.");
