@@ -77,7 +77,12 @@ test("health and ingest auth flow with ingest secret", async () => {
     const ready = await fetch(`${baseUrl}/readyz`);
     assert.equal(ready.status, 200);
     const readyBody = await ready.json();
+    assert.equal(readyBody.ok, true);
     assert.equal(readyBody.wsPath, "/ws");
+    assert.equal(readyBody.hasPostgres, false);
+    assert.equal(readyBody.postgresReachable, null);
+    assert.ok(readyBody.ingestRateLimit);
+    assert.equal(readyBody.ingestRateLimit.maxPerWindow >= 1, true);
 
     const noSecret = await fetch(`${baseUrl}/api/ingest/reading`, {
       method: "POST",

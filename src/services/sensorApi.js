@@ -13,6 +13,7 @@
 
 import { normalizeDashboardPayload } from "./sensorNormalize";
 import { planPathForFloorId } from "./facilityFloors";
+import { cachedFetch } from "./apiCache";
 
 export { normalizeDashboardPayload } from "./sensorNormalize";
 
@@ -203,12 +204,22 @@ export async function sensorFetch(path, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, {
-      ...options,
-      credentials: "include",
-      headers,
-      signal: options.signal || controller.signal,
-    });
+    // Usa cachedFetch per le richieste GET, altrimenti fetch normale
+    if (!options.method || options.method === 'GET') {
+      return await cachedFetch(url, {
+        ...options,
+        credentials: "include",
+        headers,
+        signal: options.signal || controller.signal,
+      }, 30000); // 30 secondi TTL per cache
+    } else {
+      return await fetch(url, {
+        ...options,
+        credentials: "include",
+        headers,
+        signal: options.signal || controller.signal,
+      });
+    }
   } catch (err) {
     if (err?.name === "AbortError") {
       throw new ApiHttpError(408, "gateway_timeout");

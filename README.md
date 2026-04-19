@@ -121,6 +121,8 @@ npm run server
 - Frontend: copia `.env.example` in `.env` (se necessario).
 - Backend: copia `server/.env.example` in `server/.env`.
 
+**Produzione / TTN / problemi operativi:** vedi [docs/OPS_TROUBLESHOOTING.md](docs/OPS_TROUBLESHOOTING.md) (health, webhook, Postgres, payload, rate limit).
+
 Note utili:
 
 - se `REQUIRE_AUTH=true`, `AUTH_PASSWORD` e obbligatoria;

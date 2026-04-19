@@ -841,10 +841,33 @@ async function closePool() {
   }
 }
 
+/**
+ * Ping leggero per readiness probe (es. load balancer / orchestrator).
+ * Non crea schema: assume che verifyDatabaseOnStartup sia già stato eseguito all'avvio.
+ */
+async function pingDatabase() {
+  const p = getPool();
+  if (!p) {
+    return { ok: false, error: "pool_unavailable" };
+  }
+  try {
+    const r = await p.query("SELECT 1 AS ok");
+    const row = r.rows && r.rows[0];
+    if (row && Number(row.ok) === 1) {
+      return { ok: true };
+    }
+    return { ok: false, error: "unexpected_ping_result" };
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    return { ok: false, error: msg, code: err && err.code };
+  }
+}
+
 module.exports = {
   getPool,
   ensureSchema,
   verifyDatabaseOnStartup,
+  pingDatabase,
   withClient,
   normalizeDevEui,
   uplinkStatus,

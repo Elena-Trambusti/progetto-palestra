@@ -6,7 +6,7 @@ services:
     rootDir: .
     plan: free
     autoDeploy: true
-    # Un solo comando: niente && multilinea spezzata nel pannello Render (quello dava "npm help" e exit 1).
+    # Un solo comando: niente && multilinea spezzato nel pannello Render (quello dava "npm help" e exit 1).
     buildCommand: bash scripts/render-build.sh
     startCommand: npm start
     healthCheckPath: /health
