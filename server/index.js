@@ -48,6 +48,27 @@ const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
 
 const PORT = Number(process.env.PORT) || 4000;
 const API_KEY = (process.env.API_KEY || "").trim();
+
+// DEBUG: Log informazioni su file statici per Render
+const debugFrontendPath = path.resolve(__dirname, "..", "build");
+const debugIndexPath = path.join(debugFrontendPath, "index.html");
+console.log("[DEBUG] ====================================");
+console.log("[DEBUG] Working directory:", process.cwd());
+console.log("[DEBUG] __dirname:", __dirname);
+console.log("[DEBUG] Frontend root:", debugFrontendPath);
+console.log("[DEBUG] Index path:", debugIndexPath);
+console.log("[DEBUG] Frontend dir exists:", fs.existsSync(debugFrontendPath));
+console.log("[DEBUG] Index exists:", fs.existsSync(debugIndexPath));
+if (fs.existsSync(debugFrontendPath)) {
+  console.log("[DEBUG] Build directory contents:");
+  try {
+    const files = fs.readdirSync(debugFrontendPath);
+    files.forEach(file => console.log("[DEBUG]   -", file));
+  } catch (err) {
+    console.log("[DEBUG] Error reading directory:", err.message);
+  }
+}
+console.log("[DEBUG] ====================================");
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "http://localhost:3000").trim();
 /** Su Render (`RENDER=true`) senza variabile esplicita, si assume login dashboard attivo (coerente con blueprint). */
 const IS_RENDER =
