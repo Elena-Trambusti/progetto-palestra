@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build su Render (Linux): evita comandi npm spezzati nel dashboard e riduce OOM sul CRA.
-# TRIGGER REBUILD: 2026-04-19-1706 - final fix with CI passing
+# TRIGGER REBUILD: 2026-04-19-1723 - debug build process
 set -euo pipefail
 
 echo "[BUILD] ==========================================="
@@ -22,6 +22,7 @@ npm install --prefix server --no-audit --no-fund || { echo "[BUILD] ERRORE: npm 
 echo "[BUILD] ==> Build frontend (CRA, usa .env.production)..."
 echo "[BUILD] Node version: $(node --version)"
 echo "[BUILD] NPM version: $(npm --version)"
+echo "[BUILD] React scripts presente?: $(ls node_modules/.bin/react-scripts 2>/dev/null && echo 'SI' || echo 'NO')"
 
 export NODE_OPTIONS="--max-old-space-size=3072"
 export GENERATE_SOURCEMAP=false
@@ -31,7 +32,17 @@ export INLINE_RUNTIME_CHUNK=false
 echo "[BUILD] Directory prima del build:"
 ls -la | head -20
 
-npm run build 2>&1 || { echo "[BUILD] ERRORE: npm run build fallito"; exit 1; }
+echo "[BUILD] Eseguo: npm run build"
+npm run build
+BUILD_EXIT=$?
+echo "[BUILD] Exit code: $BUILD_EXIT"
+
+if [ $BUILD_EXIT -ne 0 ]; then
+    echo "[BUILD] ERRORE: npm run build fallito con exit code $BUILD_EXIT"
+    exit 1
+fi
+
+echo "[BUILD] Build terminato, controllo directory..."
 
 echo "[BUILD] ==> Verifica build..."
 echo "[BUILD] Directory dopo il build:"
