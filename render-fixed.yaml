@@ -1,4 +1,4 @@
-# Configurazione Render con servizi separati per risolvere problema frontend statico
+# Configurazione Render corretta per servire frontend + backend
 services:
   - type: web
     name: palestra-backend
