@@ -21,10 +21,21 @@ dotenv.config({ path: path.join(rootDir, "server", ".env.txt") });
 const { sendTelegramMessage } = require(path.join(rootDir, "server", "lib", "telegram"));
 
 async function main() {
+  const now = new Date();
+  const timeString = now.toLocaleString('it-IT', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  
   const text =
     "✅ <b>Test Palestra</b>\n\n" +
     "Se leggi questo messaggio, token e chat id sono corretti.\n" +
-    `🕐 ${new Date().toISOString()}`;
+    `🕐 ${timeString} (ITA)`;
 
   const r = await sendTelegramMessage(text);
   if (r.skipped) {

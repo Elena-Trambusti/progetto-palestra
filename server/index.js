@@ -7,6 +7,8 @@ const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
+const compression = require("compression");
+const rateLimit = require("express-rate-limit");
 const cookieParser = require("cookie-parser");
 const { parse: parseCookie } = require("cookie");
 const { WebSocketServer } = require("ws");
@@ -49,26 +51,13 @@ const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
 const PORT = Number(process.env.PORT) || 4000;
 const API_KEY = (process.env.API_KEY || "").trim();
 
-// DEBUG: Log informazioni su file statici per Render
-const debugFrontendPath = path.resolve(__dirname, "..", "build");
-const debugIndexPath = path.join(debugFrontendPath, "index.html");
-console.log("[DEBUG] ====================================");
-console.log("[DEBUG] Working directory:", process.cwd());
-console.log("[DEBUG] __dirname:", __dirname);
-console.log("[DEBUG] Frontend root:", debugFrontendPath);
-console.log("[DEBUG] Index path:", debugIndexPath);
-console.log("[DEBUG] Frontend dir exists:", fs.existsSync(debugFrontendPath));
-console.log("[DEBUG] Index exists:", fs.existsSync(debugIndexPath));
-if (fs.existsSync(debugFrontendPath)) {
-  console.log("[DEBUG] Build directory contents:");
-  try {
-    const files = fs.readdirSync(debugFrontendPath);
-    files.forEach(file => console.log("[DEBUG]   -", file));
-  } catch (err) {
-    console.log("[DEBUG] Error reading directory:", err.message);
-  }
+// Production-ready startup logging (only essential info)
+if (process.env.DEBUG === "true") {
+  const debugFrontendPath = path.resolve(__dirname, "..", "build");
+  const debugIndexPath = path.join(debugFrontendPath, "index.html");
+  console.log("[DEBUG] Frontend dir exists:", fs.existsSync(debugFrontendPath));
+  console.log("[DEBUG] Index exists:", fs.existsSync(debugIndexPath));
 }
-console.log("[DEBUG] ====================================");
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "http://localhost:3000").trim();
 /** Su Render (`RENDER=true`) senza variabile esplicita, si assume login dashboard attivo (coerente con blueprint). */
 const IS_RENDER =
@@ -985,8 +974,67 @@ const opsAlertWindowState = {
 
 app.disable("x-powered-by");
 if (TRUST_PROXY) app.set("trust proxy", 1);
+
+// Compression middleware - riduce dimensione risposte
+app.use(compression());
+
+// Security middleware
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cookieParser());
+
+// Rate limiting per auth endpoints (previene brute force)
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minuti
+  max: 5, // 5 tentativi
+  message: { error: "Troppi tentativi, riprova più tardi" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiting generale per API
+const apiRateLimit = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 120, // 120 richieste
+  message: { error: "Rate limit exceeded" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Applica rate limiting generale alle API
+app.use("/api/", apiRateLimit);
+
+// Applica rate limiting strict agli endpoint di autenticazione
+app.use("/api/auth/login", authRateLimit);
+
+// Simple in-memory cache per API frequente
+const apiCache = new Map();
+const CACHE_TTL = 30 * 1000; // 30 secondi
+
+function cacheMiddleware(keyGenerator, ttl = CACHE_TTL) {
+  return (req, res, next) => {
+    const key = keyGenerator(req);
+    const now = Date.now();
+    
+    if (apiCache.has(key)) {
+      const { timestamp, data } = apiCache.get(key);
+      if (now - timestamp < ttl) {
+        res.set('X-Cache', 'HIT');
+        return res.json(data);
+      }
+      apiCache.delete(key);
+    }
+    
+    // Override res.json per cache
+    const originalJson = res.json.bind(res);
+    res.json = (data) => {
+      apiCache.set(key, { timestamp: Date.now(), data });
+      res.set('X-Cache', 'MISS');
+      return originalJson(data);
+    };
+    
+    next();
+  };
+}
 
 const ALLOWED_ORIGINS =
   CORS_ORIGIN === "*"
