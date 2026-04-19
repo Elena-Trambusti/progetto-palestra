@@ -8,7 +8,7 @@ services:
     autoDeploy: true
     # Un solo comando: niente && multilinea spezzato nel pannello Render (quello dava "npm help" e exit 1).
     buildCommand: bash scripts/render-build.sh
-    startCommand: npm start
+    startCommand: node scripts/start-with-build.js
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV

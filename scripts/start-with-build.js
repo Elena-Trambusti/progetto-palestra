@@ -8,6 +8,10 @@ const { spawnSync } = require("child_process");
 const rootDir = path.resolve(__dirname, "..");
 const buildIndex = path.join(rootDir, "build", "index.html");
 
+console.log("[start] rootDir:", rootDir);
+console.log("[start] buildIndex:", buildIndex);
+console.log("[start] build esiste:", fs.existsSync(buildIndex));
+
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: rootDir,
