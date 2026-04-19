@@ -1006,35 +1006,6 @@ app.use("/api/", apiRateLimit);
 // Applica rate limiting strict agli endpoint di autenticazione
 app.use("/api/auth/login", authRateLimit);
 
-// Simple in-memory cache per API frequente
-const apiCache = new Map();
-const CACHE_TTL = 30 * 1000; // 30 secondi
-
-function cacheMiddleware(keyGenerator, ttl = CACHE_TTL) {
-  return (req, res, next) => {
-    const key = keyGenerator(req);
-    const now = Date.now();
-    
-    if (apiCache.has(key)) {
-      const { timestamp, data } = apiCache.get(key);
-      if (now - timestamp < ttl) {
-        res.set('X-Cache', 'HIT');
-        return res.json(data);
-      }
-      apiCache.delete(key);
-    }
-    
-    // Override res.json per cache
-    const originalJson = res.json.bind(res);
-    res.json = (data) => {
-      apiCache.set(key, { timestamp: Date.now(), data });
-      res.set('X-Cache', 'MISS');
-      return originalJson(data);
-    };
-    
-    next();
-  };
-}
 
 const ALLOWED_ORIGINS =
   CORS_ORIGIN === "*"
