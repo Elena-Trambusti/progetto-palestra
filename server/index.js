@@ -1540,11 +1540,32 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
     ? path.resolve(custom)
     : path.resolve(__dirname, "..", "build");
   const indexPath = path.join(frontendRoot, "index.html");
+  
+  console.log(`[static] Frontend root: ${frontendRoot}`);
+  console.log(`[static] Index path: ${indexPath}`);
+  console.log(`[static] Directory exists: ${fs.existsSync(frontendRoot)}`);
+  console.log(`[static] Index exists: ${fs.existsSync(indexPath)}`);
+  
+  if (fs.existsSync(frontendRoot)) {
+    console.log(`[static] Build directory contents:`);
+    try {
+      const files = fs.readdirSync(frontendRoot);
+      files.forEach(file => {
+        console.log(`[static]   - ${file}`);
+      });
+    } catch (err) {
+      console.log(`[static] Error reading directory: ${err.message}`);
+    }
+  }
+  
   if (!fs.existsSync(indexPath)) {
     if (IS_PROD) {
-      console.warn(
-        `[static] Nessun frontend compilato (${indexPath}). Solo API/WebSocket. Esegui dalla root: npm run build`
+      console.error(
+        `[static] CRITICAL: Nessun frontend compilato (${indexPath}). Solo API/WebSocket. Esegui dalla root: npm run build`
       );
+      console.error(`[static] Working directory: ${process.cwd()}`);
+      console.error(`[static] __dirname: ${__dirname}`);
+      console.error(`[static] NODE_ENV: ${process.env.NODE_ENV}`);
     }
     return;
   }
