@@ -13,8 +13,8 @@ cd "$ROOT"
 
 echo "[BUILD] Cambiato directory in: $(pwd)"
 
-echo "[BUILD] ==> Install dipendenze root..."
-npm install --no-audit --no-fund || { echo "[BUILD] ERRORE: npm install root fallito"; exit 1; }
+echo "[BUILD] ==> Install dipendenze root (incluse devDependencies per react-scripts)..."
+NODE_ENV=development npm install --include=dev --no-audit --no-fund || { echo "[BUILD] ERRORE: npm install root fallito"; exit 1; }
 
 echo "[BUILD] ==> Install dipendenze server/..."
 npm install --prefix server --no-audit --no-fund || { echo "[BUILD] ERRORE: npm install server fallito"; exit 1; }

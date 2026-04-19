@@ -24,7 +24,7 @@
     "yaml": "^2.8.3"
   },
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "patch-package || true",
     "telegram:test": "node scripts/telegram-test-send.js",
     "start": "node server/index.js",
     "start:frontend": "react-scripts start",

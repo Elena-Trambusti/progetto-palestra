@@ -1569,11 +1569,13 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
       const { execSync } = require("child_process");
       // Prima installa le dipendenze root se mancano
       const rootNodeModules = path.join(projectRoot, "node_modules");
-      if (!fs.existsSync(path.join(rootNodeModules, ".package-lock.json"))) {
-        console.log("[static] Installazione dipendenze root...");
-        execSync("npm install --no-audit --no-fund", {
+      const hasReactScripts = fs.existsSync(path.join(rootNodeModules, ".bin", "react-scripts"));
+      if (!hasReactScripts) {
+        console.log("[static] react-scripts mancante. Installazione dipendenze root...");
+        execSync("npm install --include=dev --no-audit --no-fund", {
           cwd: projectRoot,
           stdio: "inherit",
+          env: { ...process.env, NODE_ENV: "development" },
         });
       }
       // Usa il percorso esplicito di react-scripts
