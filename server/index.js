@@ -1539,14 +1539,33 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
  */
 (function attachFrontendStaticFromBuild() {
   const custom = String(process.env.STATIC_BUILD_DIR || "").trim();
-  const frontendRoot = custom
-    ? path.resolve(custom)
-    : path.resolve(__dirname, "..", "build");
-  const indexPath = path.join(frontendRoot, "index.html");
-  if (!fs.existsSync(indexPath)) {
+  
+  // Cerca il build in varie posizioni (locale, Render, etc.)
+  const possiblePaths = custom
+    ? [path.resolve(custom)]
+    : [
+        path.resolve(__dirname, "..", "build"),              // ../build (standard)
+        path.resolve(process.cwd(), "build"),                 // ./build (Render)
+        path.resolve(__dirname, "..", "..", "build"),       // ../../build (Render nested)
+      ];
+  
+  let frontendRoot = null;
+  let indexPath = null;
+  
+  for (const testPath of possiblePaths) {
+    const testIndex = path.join(testPath, "index.html");
+    if (fs.existsSync(testIndex)) {
+      frontendRoot = testPath;
+      indexPath = testIndex;
+      console.log(`[static] Frontend trovato in: ${frontendRoot}`);
+      break;
+    }
+  }
+  
+  if (!frontendRoot) {
     if (IS_PROD) {
       console.warn(
-        `[static] Nessun frontend compilato (${indexPath}). Solo API/WebSocket. Esegui dalla root: npm run build`
+        `[static] Nessun frontend compilato. Cercato in:\n${possiblePaths.map(p => "  - " + p).join("\n")}\nSolo API/WebSocket attivo.`
       );
     }
     return;
