@@ -1539,14 +1539,14 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
  */
 (function attachFrontendStaticFromBuild() {
   const custom = String(process.env.STATIC_BUILD_DIR || "").trim();
+  const projectRoot = path.resolve(__dirname, "..");
   
   // Cerca il build in varie posizioni (locale, Render, etc.)
   const possiblePaths = custom
     ? [path.resolve(custom)]
     : [
-        path.resolve(__dirname, "..", "build"),              // ../build (standard)
-        path.resolve(process.cwd(), "build"),                 // ./build (Render)
-        path.resolve(__dirname, "..", "..", "build"),       // ../../build (Render nested)
+        path.resolve(projectRoot, "build"),                    // ../build (standard)
+        path.resolve(process.cwd(), "build"),                  // ./build (Render cwd)
       ];
   
   let frontendRoot = null;
@@ -1562,12 +1562,38 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
     }
   }
   
-  if (!frontendRoot) {
-    if (IS_PROD) {
-      console.warn(
-        `[static] Nessun frontend compilato. Cercato in:\n${possiblePaths.map(p => "  - " + p).join("\n")}\nSolo API/WebSocket attivo.`
-      );
+  // Se il frontend manca, proviamo a compilarlo on-the-fly
+  if (!frontendRoot && IS_PROD) {
+    console.log("[static] Frontend mancante. Tentativo build automatico...");
+    try {
+      const { execSync } = require("child_process");
+      execSync("npm run build", {
+        cwd: projectRoot,
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          GENERATE_SOURCEMAP: "false",
+          DISABLE_ESLINT_PLUGIN: "true",
+          INLINE_RUNTIME_CHUNK: "false",
+        },
+      });
+      // Ricontrolla dopo il build
+      for (const testPath of possiblePaths) {
+        const testIndex = path.join(testPath, "index.html");
+        if (fs.existsSync(testIndex)) {
+          frontendRoot = testPath;
+          indexPath = testIndex;
+          console.log(`[static] Frontend compilato con successo in: ${frontendRoot}`);
+          break;
+        }
+      }
+    } catch (err) {
+      console.error("[static] Build automatico fallito:", err.message);
     }
+  }
+  
+  if (!frontendRoot) {
+    console.warn("[static] Nessun frontend disponibile. Solo API/WebSocket attivo.");
     return;
   }
   app.use(
