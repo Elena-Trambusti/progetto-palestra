@@ -16,6 +16,7 @@ import NetworkStatusPanel from "./components/NetworkStatusPanel";
 import NodeDetailPanel from "./components/NodeDetailPanel";
 import SensorDynamicGrid from "./components/SensorDynamicGrid";
 import ConfigurazionePanel from "./components/ConfigurazionePanel";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { MOCK_ZONES } from "./services/mockSensors";
 import { useDashboardSensors } from "./hooks/useDashboardSensors";
 import { getStoredSessionToken, logoutFromGateway } from "./services/sensorApi";
@@ -23,13 +24,14 @@ import "./App.css";
 
 /** Supporta `#configurazione` e `/#configurazione` come richiesto. */
 function isConfigurazioneHash(hash) {
-  const raw = String(hash || "").replace(/^#/, "").trim();
+  const raw = String(hash || "")
+    .replace(/^#/, "")
+    .trim();
   return raw === "configurazione" || raw === "/configurazione";
 }
 
 const facilityLine =
-  (process.env.REACT_APP_FACILITY_LINE || "").trim() ||
-  "Struttura · Livorno";
+  (process.env.REACT_APP_FACILITY_LINE || "").trim() || "Struttura · Livorno";
 
 export default function App() {
   const [zoneId, setZoneId] = useState(MOCK_ZONES[0].id);
@@ -112,7 +114,9 @@ export default function App() {
   const hasSession = Boolean(getStoredSessionToken());
 
   const showConnectionBanner =
-    useApi && !authRequired && (Boolean(zonesError) || connection === "degraded");
+    useApi &&
+    !authRequired &&
+    (Boolean(zonesError) || connection === "degraded");
   const bannerDetail =
     zonesError ||
     apiErrorHint ||
@@ -158,9 +162,7 @@ export default function App() {
       <div
         className={`dashboard-grid${
           mainTab === "history" ? " dashboard-grid--history" : ""
-        }${
-          mainTab === "network" ? " dashboard-grid--network" : ""
-        }${
+        }${mainTab === "network" ? " dashboard-grid--network" : ""}${
           mainTab === "node" ? " dashboard-grid--node" : ""
         }${
           mainTab === "dashboard" && showFloorPlan
@@ -229,45 +231,65 @@ export default function App() {
               </div>
             ) : null}
             <div className="area-chart">
-              <TemperatureChart
-                labels={labels}
-                values={values}
-                currentTemp={postgresNoSensors ? null : lastTemp}
-                loading={dashboardLoading}
-                emptyHint={postgresNoSensors ? emptyDbMessage : ""}
-              />
+              <ErrorBoundary>
+                <TemperatureChart
+                  labels={labels}
+                  values={values}
+                  currentTemp={postgresNoSensors ? null : lastTemp}
+                  loading={dashboardLoading}
+                  emptyHint={postgresNoSensors ? emptyDbMessage : ""}
+                />
+              </ErrorBoundary>
             </div>
             <div className="area-rightcol">
               {postgresNoSensors ? (
                 <section className="env-panel glass-panel animate-in animate-in-delay-2">
-                  <p className="mono" style={{ padding: "1.25rem", color: "#d4d4d8", lineHeight: 1.5 }}>
+                  <p
+                    className="mono"
+                    style={{
+                      padding: "1.25rem",
+                      color: "#d4d4d8",
+                      lineHeight: 1.5,
+                    }}
+                  >
                     {emptyDbMessage}
                   </p>
                 </section>
               ) : (
                 <>
                   {water != null ? (
-                    <WaterLevelGauge
-                      level={water}
-                      loading={dashboardLoading}
-                      waterEtaHours={waterEtaHours}
-                      waterEtaConfidence={waterEtaConfidence}
-                      waterDepletionRatePctPerHour={waterDepletionRatePctPerHour}
-                      waterRapidDrop={waterRapidDrop}
-                      waterRapidDropDelta={waterRapidDropDelta}
-                    />
+                    <ErrorBoundary>
+                      <WaterLevelGauge
+                        level={water}
+                        loading={dashboardLoading}
+                        waterEtaHours={waterEtaHours}
+                        waterEtaConfidence={waterEtaConfidence}
+                        waterDepletionRatePctPerHour={
+                          waterDepletionRatePctPerHour
+                        }
+                        waterRapidDrop={waterRapidDrop}
+                        waterRapidDropDelta={waterRapidDropDelta}
+                      />
+                    </ErrorBoundary>
                   ) : null}
                   {sensorCards.length > 0 ? (
-                    <SensorDynamicGrid cards={sensorCards} loading={dashboardLoading} />
+                    <ErrorBoundary>
+                      <SensorDynamicGrid
+                        cards={sensorCards}
+                        loading={dashboardLoading}
+                      />
+                    </ErrorBoundary>
                   ) : (
-                    <EnvironmentalPanel
-                      humidityPercent={humidityPercent}
-                      co2Ppm={co2Ppm}
-                      vocIndex={vocIndex}
-                      lightLux={lightLux}
-                      flowLmin={flowLmin}
-                      loading={dashboardLoading}
-                    />
+                    <ErrorBoundary>
+                      <EnvironmentalPanel
+                        humidityPercent={humidityPercent}
+                        co2Ppm={co2Ppm}
+                        vocIndex={vocIndex}
+                        lightLux={lightLux}
+                        flowLmin={flowLmin}
+                        loading={dashboardLoading}
+                      />
+                    </ErrorBoundary>
                   )}
                 </>
               )}

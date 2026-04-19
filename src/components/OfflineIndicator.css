@@ -1,0 +1,127 @@
+.offline-indicator {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.9);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+  animation: slideIn 0.3s ease-out;
+}
+
+.offline-indicator--online {
+  border: 1px solid #10b981;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.offline-indicator--slow {
+  border: 1px solid #f59e0b;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+.offline-indicator--offline {
+  border: 1px solid #ef4444;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+}
+
+.offline-indicator__button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: #e5e7eb;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+}
+
+.offline-indicator__button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.offline-indicator__text {
+  font-weight: 500;
+}
+
+.offline-indicator__cache-icon {
+  opacity: 0.7;
+}
+
+.offline-indicator__details {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: rgba(0, 0, 0, 0.95);
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 200px;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 11px;
+  color: #e5e7eb;
+  backdrop-filter: blur(10px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.offline-indicator__detail-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  padding: 2px 0;
+}
+
+.offline-indicator__detail-row:last-child {
+  margin-bottom: 0;
+}
+
+.offline-indicator__warning {
+  color: #f59e0b;
+  font-weight: 500;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .offline-indicator {
+    top: 5px;
+    right: 5px;
+    left: 5px;
+  }
+  
+  .offline-indicator__button {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  
+  .offline-indicator__details {
+    left: 0;
+    right: 0;
+    min-width: auto;
+  }
+}

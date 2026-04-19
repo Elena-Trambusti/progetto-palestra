@@ -42,6 +42,8 @@ const {
 } = require("./lib/sessions");
 const { ingestTtnWebhook } = require("./lib/ttnIngest");
 const adminAuthLib = require("./lib/adminAuth");
+const { validateReading, validateQueryParams } = require("./lib/validation");
+const logger = require("./lib/structuredLogger");
 
 const DATABASE_URL = (process.env.DATABASE_URL || "").trim();
 const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
@@ -88,6 +90,16 @@ const OPS_ALERT_INGEST_REJECTS_DELTA =
   Number(process.env.OPS_ALERT_INGEST_REJECTS_DELTA) || 5;
 const OPS_ALERT_MIN_REQUESTS =
   Number(process.env.OPS_ALERT_MIN_REQUESTS) || 30;
+const INGEST_RATE_LIMIT_WINDOW_MS =
+  Number(process.env.INGEST_RATE_LIMIT_WINDOW_MS) || 60_000;
+const INGEST_RATE_LIMIT_MAX = (() => {
+  const raw = process.env.INGEST_RATE_LIMIT_MAX;
+  if (raw !== undefined && String(raw).trim() !== "") {
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : IS_PROD ? 120 : 240;
+  }
+  return IS_PROD ? 120 : 240;
+})();
 
 if (REQUIRE_AUTH && !AUTH_PASSWORD) {
   console.error(
@@ -996,6 +1008,7 @@ app.use(
   })
 );
 app.use(express.json({ limit: "256kb" }));
+app.use(logger.middleware());
 app.use((req, res, next) => {
   const reqId = req.get("x-request-id") || crypto.randomUUID();
   req.reqId = reqId;
@@ -1055,8 +1068,8 @@ const limitAdminLogin = makeRateLimit({
   keyPrefix: "admin-login",
 });
 const limitIngest = makeRateLimit({
-  windowMs: 60_000,
-  max: 240,
+  windowMs: INGEST_RATE_LIMIT_WINDOW_MS,
+  max: INGEST_RATE_LIMIT_MAX,
   keyPrefix: "ingest",
 });
 const limitReport = makeRateLimit({
@@ -1154,15 +1167,57 @@ app.get("/health", (_req, res) => {
   });
 });
 
-app.get("/readyz", (_req, res) => {
-  res.json({
-    ok: true,
+app.get("/readyz", async (_req, res) => {
+  const base = {
     env: NODE_ENV,
     requireAuth: REQUIRE_AUTH,
     hasIngestSecret: Boolean(INGEST_SECRET),
     hasPostgres: Boolean(pgStore),
+    postgresReachable: null,
     wsPath: "/ws",
-  });
+    ingestRateLimit: {
+      windowMs: INGEST_RATE_LIMIT_WINDOW_MS,
+      maxPerWindow: INGEST_RATE_LIMIT_MAX,
+    },
+  };
+
+  if (!pgStore) {
+    return res.json({
+      ok: true,
+      ...base,
+    });
+  }
+
+  try {
+    const ping = await pgStore.pingDatabase();
+    if (!ping.ok) {
+      logEvent("warn", "readyz_postgres_unreachable", {
+        error: ping.error,
+        code: ping.code,
+      });
+      return res.status(503).json({
+        ok: false,
+        ...base,
+        postgresReachable: false,
+        postgresError: ping.error,
+        postgresCode: ping.code,
+      });
+    }
+    return res.json({
+      ok: true,
+      ...base,
+      postgresReachable: true,
+    });
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    logEvent("error", "readyz_postgres_ping_failed", { message: msg });
+    return res.status(503).json({
+      ok: false,
+      ...base,
+      postgresReachable: false,
+      postgresError: msg,
+    });
+  }
 });
 
 app.get("/metrics", (_req, res) => {
@@ -1323,8 +1378,19 @@ app.get("/api/dashboard/snapshot", limitApiRead, async (req, res) => {
 });
 
 app.get("/api/history", limitApiRead, async (req, res) => {
-  const fromIso = String(req.query.from || "").trim();
-  const toIso = String(req.query.to || "").trim();
+  // Validazione query parameters
+  const allowedParams = ['zoneId', 'nodeId', 'from', 'to', 'limit'];
+  const queryValidation = validateQueryParams(req.query, allowedParams);
+  if (!queryValidation.valid) {
+    return res.status(400).json({ 
+      error: "invalid_query_params", 
+      detail: queryValidation.error 
+    });
+  }
+  
+  const { from, to, limit } = queryValidation.sanitized;
+  const fromIso = String(from || "").trim();
+  const toIso = String(to || "").trim();
   if (!validateIsoRange(fromIso, toIso)) {
     return res.status(400).json({ error: "invalid_time_range" });
   }
@@ -1335,14 +1401,14 @@ app.get("/api/history", limitApiRead, async (req, res) => {
     const zone = await resolveSnapshotZoneOrError(req.query.zoneId);
     if (!zone.ok) return res.status(400).json({ error: zone.error });
     const { zoneId } = zone;
-    const limit = Math.min(4000, Math.max(1, Number(req.query.limit) || 200));
-    const samples = await pgStore.historySamplesForLocation(zoneId, limit, range);
+    const limitValue = Math.min(4000, Math.max(1, Number(limit) || 200));
+    const samples = await pgStore.historySamplesForLocation(zoneId, limitValue, range);
     const sensorsCatalog =
       zoneId && !zone.empty ? await pgStore.listSensorsForLocation(zoneId) : [];
     return res.json({
       zoneId,
       nodeId: null,
-      limit,
+      limit: limitValue,
       points: [],
       samples,
       sensorsCatalog,
@@ -1355,17 +1421,17 @@ app.get("/api/history", limitApiRead, async (req, res) => {
   if (!node.ok) return res.status(400).json({ error: node.error });
   const { zoneId } = zone;
   const { nodeId } = node;
-  const limit = Math.min(4000, Math.max(1, Number(req.query.limit) || 200));
+  const limitValue = Math.min(4000, Math.max(1, Number(limit) || 200));
   const points = nodeId
-    ? history.readNodeSeries(DATA_DIR, nodeId, limit)
-    : history.readZoneSeries(DATA_DIR, zoneId, limit);
+    ? history.readNodeSeries(DATA_DIR, nodeId, limitValue)
+    : history.readZoneSeries(DATA_DIR, zoneId, limitValue);
   const samples = nodeId
-    ? history.readNodeHistoryPoints(DATA_DIR, nodeId, limit, range)
-    : history.readZoneHistoryPoints(DATA_DIR, zoneId, limit, range);
+    ? history.readNodeHistoryPoints(DATA_DIR, nodeId, limitValue, range)
+    : history.readZoneHistoryPoints(DATA_DIR, zoneId, limitValue, range);
   res.json({
     zoneId,
     nodeId: nodeId || null,
-    limit,
+    limit: limitValue,
     points,
     samples,
     sensorsCatalog: [],
@@ -1387,7 +1453,7 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
     if (!zone.ok) return res.status(400).json({ error: zone.error });
     const { zoneId } = zone;
     const rows = await pgStore.csvRowsForLocation(zoneId, cap, range);
-    const safeName = String(zoneId).replace(/[^\w\-]+/g, "_").slice(0, 80) || "export";
+    const safeName = String(zoneId).replace(/[^\w-]+/g, "_").slice(0, 80) || "export";
     res.setHeader("content-type", "text/csv; charset=utf-8");
     res.setHeader(
       "content-disposition",
@@ -1600,12 +1666,41 @@ app.post("/api/ingest/reading", limitIngest, ingestAuth, async (req, res) => {
       hint: "Con DATABASE_URL configurato usa POST /api/ingest (webhook TTN).",
     });
   }
+  
+  // Validazione rigorosa del payload
+  const validation = validateReading(req.body || {});
+  if (!validation.valid) {
+    metrics.ingestRejected += 1;
+    logger.warn("Invalid reading payload", { 
+      error: validation.error, 
+      payload: req.body,
+      nodeId: req.body?.nodeId,
+      zoneId: req.body?.zoneId,
+      requestId: req.reqId
+    });
+    return res.status(400).json({
+      error: "invalid_payload",
+      detail: validation.error
+    });
+  }
+  
   const reading = normalizeReadingPayload(req.body || {});
   if (reading.error) {
+    metrics.ingestRejected += 1;
+    logger.warn("Reading normalization error", { 
+      error: reading.error, 
+      payload: req.body,
+      requestId: req.reqId
+    });
     return res.status(400).json(reading);
   }
+  
   applyManualReading(reading.zoneId, reading);
   metrics.ingestAccepted += 1;
+  
+  // Log dati sensor accettati
+  logger.logSensorData(reading.nodeId, reading.zoneId, reading.sensors || {});
+  
   await broadcastSnapshots();
   return res.json({
     ok: true,
