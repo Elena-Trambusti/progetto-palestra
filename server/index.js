@@ -1567,7 +1567,18 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
     console.log("[static] Frontend mancante. Tentativo build automatico...");
     try {
       const { execSync } = require("child_process");
-      execSync("npm run build", {
+      // Prima installa le dipendenze root se mancano
+      const rootNodeModules = path.join(projectRoot, "node_modules");
+      if (!fs.existsSync(path.join(rootNodeModules, ".package-lock.json"))) {
+        console.log("[static] Installazione dipendenze root...");
+        execSync("npm install --no-audit --no-fund", {
+          cwd: projectRoot,
+          stdio: "inherit",
+        });
+      }
+      // Usa il percorso esplicito di react-scripts
+      const reactScriptsBin = path.join(rootNodeModules, ".bin", "react-scripts");
+      execSync(`${reactScriptsBin} build`, {
         cwd: projectRoot,
         stdio: "inherit",
         env: {
@@ -1575,6 +1586,7 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
           GENERATE_SOURCEMAP: "false",
           DISABLE_ESLINT_PLUGIN: "true",
           INLINE_RUNTIME_CHUNK: "false",
+          NODE_OPTIONS: "--max-old-space-size=3072",
         },
       });
       // Ricontrolla dopo il build
