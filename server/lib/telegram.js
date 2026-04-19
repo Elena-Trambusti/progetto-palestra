@@ -121,7 +121,17 @@ async function maybeNotifyThresholdAlarm(sensor, numericValue) {
     lines.push(`🔑 dev_eui: <code>${escapeHtml(String(sensor.dev_eui).trim())}</code>`);
   }
 
-  lines.push("", `🕐 ${new Date().toISOString()}`);
+  const now = new Date();
+  const timeString = now.toLocaleString('it-IT', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  lines.push("", `🕐 ${timeString} (ITA)`);
 
   const text = lines.join("\n");
 
