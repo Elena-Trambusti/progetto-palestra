@@ -1,3 +1,5 @@
+const { notifyCriticalAlarm, notifyWarning } = require("./telegramNotifier");
+
 const COOLDOWN_MS = Number(process.env.NOTIFY_COOLDOWN_MS) || 5 * 60 * 1000;
 const RAPID_COOLDOWN_MS =
   Number(process.env.NOTIFY_WATER_RAPID_COOLDOWN_MS) || 10 * 60 * 1000;
@@ -54,6 +56,20 @@ function maybeNotifyWaterLow({
     // eslint-disable-next-line no-console
     console.warn("[notify] water_low webhook failed", err?.message || err);
   });
+
+  // Invia anche su Telegram
+  notifyCriticalAlarm({
+    zoneId,
+    zoneName,
+    type: "water_low",
+    title: "Livello Acqua Basso",
+    message: `La riserva idrica ha raggiunto il ${nextWater}% (sotto soglia 20%).`,
+    value: nextWater,
+    unit: "%",
+    action: "Verificare pompe e rifornimento acqua",
+  }).catch((err) => {
+    console.warn("[notify] water_low Telegram failed", err?.message || err);
+  });
 }
 
 /**
@@ -95,6 +111,20 @@ function maybeNotifyWaterRapidDrop({
   }).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[notify] water_rapid_drop webhook failed", err?.message || err);
+  });
+
+  // Invia anche su Telegram
+  notifyCriticalAlarm({
+    zoneId,
+    zoneName,
+    type: "water_rapid_drop",
+    title: "Calo Rapido Acqua",
+    message: `Perdita improvvisa rilevata: calo di ${Math.round(deltaPercent || 0)}% in breve tempo.`,
+    value: deltaPercent,
+    unit: "%",
+    action: "URGENTE: Verificare perdite o rifornimento immediato",
+  }).catch((err) => {
+    console.warn("[notify] water_rapid_drop Telegram failed", err?.message || err);
   });
 }
 
@@ -141,6 +171,30 @@ function maybeNotifyEnvThreshold(p) {
   }).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn("[notify] env_threshold webhook failed", err?.message || err);
+  });
+
+  // Invia anche su Telegram
+  const isCritical = alarmType.includes("high") || alarmType.includes("critical");
+  const titleMap = {
+    temp_high: "Temperatura Elevata",
+    temp_low: "Temperatura Bassa",
+    humidity_high: "Umidità Elevata",
+    humidity_low: "Umidità Bassa",
+    co2_high: "CO₂ Elevato",
+    voc_high: "VOC Elevato",
+  };
+  const title = titleMap[alarmType] || "Allarme Ambientale";
+
+  const notifyFn = isCritical ? notifyCriticalAlarm : notifyWarning;
+  notifyFn({
+    zoneId,
+    zoneName,
+    type: alarmType,
+    title,
+    message: message || `${alarmType} in ${zoneName || zoneId}`,
+    value,
+  }).catch((err) => {
+    console.warn("[notify] env_threshold Telegram failed", err?.message || err);
   });
 }
 

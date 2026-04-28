@@ -45,6 +45,11 @@ const {
 const { ingestTtnWebhook } = require("./lib/ttnIngest");
 const adminAuthLib = require("./lib/adminAuth");
 
+// Moduli Telegram Bot Intelligente
+const { startBatteryMonitoring } = require("./lib/batteryAlerts");
+const { startNetworkMonitoring } = require("./lib/networkAlerts");
+const { isTelegramConfigured } = require("./lib/telegram");
+
 const DATABASE_URL = (process.env.DATABASE_URL || "").trim();
 const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
 
@@ -1982,6 +1987,31 @@ async function startHttpServer() {
     }
     if (DISABLE_AUTO_TICK) {
       console.log("  Simulazione random DISATTIVATA (DISABLE_AUTO_TICK=true) — solo ingest/manuale");
+    }
+
+    // Avvia monitoraggi Telegram Bot Intelligente
+    if (isTelegramConfigured()) {
+      console.log("  🤖 Telegram Bot Intelligente attivo:");
+
+      // Monitoraggio batterie
+      const batteryMonitor = startBatteryMonitoring(() => store);
+      console.log("     └─ Monitoraggio batterie ogni 5 min (soglie: 25%/15%)");
+
+      // Monitoraggio rete
+      const networkMonitor = startNetworkMonitoring(() => store);
+      console.log("     └─ Monitoraggio rete ogni 5 min (offline dopo 10 min)");
+
+      // Cleanup in shutdown
+      process.on("SIGTERM", () => {
+        batteryMonitor.stop();
+        networkMonitor.stop();
+      });
+      process.on("SIGINT", () => {
+        batteryMonitor.stop();
+        networkMonitor.stop();
+      });
+    } else {
+      console.log("  🤖 Telegram Bot: non configurato (impostare TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID)");
     }
   });
 }
