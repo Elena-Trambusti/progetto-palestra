@@ -1,0 +1,426 @@
+/* "Sesto Senso" - Water Savings Panel Styles */
+
+.water-savings {
+  --primary-color: #0891b2;
+  --success-color: #22c55e;
+  --warning-color: #f59e0b;
+  --danger-color: #ef4444;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --bg-glass: rgba(15, 23, 42, 0.8);
+  --border-glass: rgba(148, 163, 184, 0.2);
+}
+
+.water-savings__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-glass);
+}
+
+.water-savings__icon {
+  width: 24px;
+  height: 24px;
+  color: var(--primary-color);
+  flex-shrink: 0;
+}
+
+.water-savings__title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+  line-height: 1.2;
+}
+
+.water-savings__hint {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.water-savings__status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.water-savings__status-icon {
+  font-size: 1rem;
+}
+
+.water-savings__status-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Loading State */
+.water-savings__loading,
+.water-savings__error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 200px;
+  color: var(--text-secondary);
+}
+
+.water-savings__spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-glass);
+  border-top: 2px solid var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.water-savings__error-icon {
+  color: var(--danger-color);
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Metrics Grid */
+.water-savings__metrics {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.water-savings__metric {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 20px;
+  transition: all 0.2s ease;
+}
+
+.water-savings__metric:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+}
+
+.water-savings__metric--primary {
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.2), rgba(6, 182, 212, 0.1));
+  border-color: rgba(8, 145, 178, 0.3);
+}
+
+.water-savings__metric-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.water-savings__metric-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+}
+
+.water-savings__metric-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.water-savings__metric-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  font-feature-settings: 'tnum';
+  font-variant-numeric: tabular-nums;
+}
+
+.water-savings__metric-period {
+  font-size: 1rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.water-savings__metric-trend {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.water-savings__trend--up {
+  color: var(--success-color);
+}
+
+.water-savings__trend--down {
+  color: var(--warning-color);
+}
+
+.water-savings__trend--stable {
+  color: var(--text-secondary);
+}
+
+.water-savings__metric-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Nodes Section */
+.water-savings__nodes {
+  margin-bottom: 32px;
+}
+
+.water-savings__section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+}
+
+.water-savings__section-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--primary-color);
+}
+
+.water-savings__nodes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.water-savings__node-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 16px;
+  transition: all 0.2s ease;
+}
+
+.water-savings__node-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.water-savings__node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.water-savings__node-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.water-savings__node-location {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.water-savings__node-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.water-savings__node-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.water-savings__node-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.water-savings__node-value {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+/* Filter Progress Bar */
+.water-savings__filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 120px;
+}
+
+.water-savings__filter-fill {
+  height: 6px;
+  border-radius: 3px;
+  transition: all 0.3s ease;
+  min-width: 4px;
+}
+
+.water-savings__filter-percent {
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  min-width: 32px;
+  text-align: right;
+}
+
+.water-savings__node-alert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: var(--warning-color);
+}
+
+.water-savings__alert-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Insights Section */
+.water-savings__insights {
+  margin-bottom: 24px;
+}
+
+.water-savings__insight-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.water-savings__insight-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.water-savings__insight-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--success-color);
+}
+
+.water-savings__insight-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.water-savings__insight-content {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.water-savings__insight-content strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.water-savings__maintenance-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: var(--warning-color);
+}
+
+.water-savings__maintenance-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Footer */
+.water-savings__footer {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-glass);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .water-savings__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .water-savings__status {
+    margin-left: 0;
+    align-self: flex-start;
+  }
+
+  .water-savings__metrics {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .water-savings__metric-value {
+    font-size: 1.5rem;
+  }
+
+  .water-savings__nodes-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .water-savings__node-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  .water-savings {
+    padding: 16px;
+  }
+
+  .water-savings__title {
+    font-size: 1.125rem;
+  }
+
+  .water-savings__metric {
+    padding: 16px;
+  }
+
+  .water-savings__node-card,
+  .water-savings__insight-card {
+    padding: 12px;
+  }
+}

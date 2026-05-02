@@ -10,6 +10,63 @@ const {
   insertMeasurement,
 } = require("./postgresStore");
 const { maybeNotifyThresholdAlarm } = require("./telegram");
+const { analyzeWaterData } = require("./waterAnalytics");
+const { analyzeAirData } = require("./airAnalytics");
+
+/**
+ * Mappatura dinamica sensori per distinguere tipi e campi
+ * Estensibile per futuri sensori (vibrazione, temperatura, etc.)
+ */
+const SENSOR_MAPPINGS = {
+  // Sensori Acqua
+  'node-flow-01': {
+    type: 'water',
+    fields: ['flowLmin', 'levelPercent'],
+    sensorType: 'water-flow'
+  },
+  'node-water-01': {
+    type: 'water', 
+    fields: ['levelPercent', 'temperatureC'],
+    sensorType: 'water-level'
+  },
+  
+  // Sensori Aria
+  'node-air-01': {
+    type: 'air',
+    fields: ['co2Ppm', 'vocIndex', 'lux'],
+    sensorType: 'air-quality'
+  },
+  
+  // Sensori Temperatura (esempio futuro)
+  'node-temp-01': {
+    type: 'temperature',
+    fields: ['temperatureC', 'humidityPercent'],
+    sensorType: 'temperature'
+  }
+};
+
+/**
+ * Estrae i campi specifici per tipo di sensore dal payload
+ */
+function extractSensorData(deviceId, payload) {
+  const mapping = SENSOR_MAPPINGS[deviceId];
+  if (!mapping) {
+    return { type: 'unknown', data: payload, sensorType: 'unknown' };
+  }
+  
+  const data = {};
+  mapping.fields.forEach(field => {
+    if (payload[field] !== undefined) {
+      data[field] = payload[field];
+    }
+  });
+  
+  return {
+    type: mapping.type,
+    data: data,
+    sensorType: mapping.sensorType
+  };
+}
 
 /**
  * Converte il timestamp uplink in un istante UTC affidabile.
@@ -356,15 +413,29 @@ async function ingestTtnWebhook(body) {
   const radio = sanitizeRadio(rssi, snr);
   const tsUtc = parseIngestTimestampUtc(tsRaw);
 
+  // Estrai dati specifici per tipo di sensore
+  const sensorInfo = extractSensorData(devEui, decoded);
+  
+  // Prepara campi specifici per insertMeasurement
+  const measurementData = {
+    sensorId: sensor.id,
+    value: Number(value),
+    sensorType: sensorInfo.sensorType,
+    rssi: radio.rssi,
+    snr: radio.snr,
+    battery,
+    timestamp: tsUtc,
+  };
+  
+  // Aggiungi campi specifici per sensori aria
+  if (sensorInfo.type === 'air') {
+    measurementData.co2 = sensorInfo.data.co2Ppm || null;
+    measurementData.voc = sensorInfo.data.vocIndex || null;
+    measurementData.lux = sensorInfo.data.lux || null;
+  }
+
   try {
-    await insertMeasurement({
-      sensorId: sensor.id,
-      value: Number(value),
-      rssi: radio.rssi,
-      snr: radio.snr,
-      battery,
-      timestamp: tsUtc,
-    });
+    await insertMeasurement(measurementData);
   } catch (err) {
     return databaseFailureResponse(err, "insertMeasurement");
   }
@@ -373,6 +444,20 @@ async function ingestTtnWebhook(body) {
   void maybeNotifyThresholdAlarm(sensor, numericValue).catch((err) => {
     console.warn("[telegram]", err && err.message ? err.message : err);
   });
+
+  // "Sesto Senso" - Analisi intelligente per nodi acqua
+  if (sensorInfo.type === 'water') {
+    void analyzeWaterPacket(sensor, devEui, decoded, tsUtc).catch((err) => {
+      console.warn("[waterAnalytics]", err && err.message ? err.message : err);
+    });
+  }
+  
+  // "Sesto Senso Aria" - Analisi intelligente per nodi aria
+  if (sensorInfo.type === 'air') {
+    void analyzeAirPacket(sensor, devEui, sensorInfo.data, tsUtc).catch((err) => {
+      console.warn("[airAnalytics]", err && err.message ? err.message : err);
+    });
+  }
 
   return {
     ok: true,
@@ -387,6 +472,67 @@ async function ingestTtnWebhook(body) {
   };
 }
 
+/**
+ * Analizza pacchetto dati acqua con "Sesto Senso"
+ */
+async function analyzeWaterPacket(sensor, devEui, decoded, timestamp) {
+  try {
+    // Estrai dati dal decoded payload
+    const flowLmin = decoded?.flowLmin || decoded?.flow || null;
+    const levelPercent = decoded?.levelPercent || decoded?.level || null;
+    
+    if (flowLmin === null && levelPercent === null) {
+      return; // Nessun dato acqua rilevante
+    }
+
+    console.log(`[waterAnalytics] Analisi pacchetto acqua: ${devEui}`, {
+      flowLmin,
+      levelPercent,
+      timestamp: timestamp.toISOString()
+    });
+
+    // Esegui analisi intelligente
+    const analysis = await analyzeWaterData({
+      nodeId: devEui,
+      flowLmin: Number(flowLmin) || 0,
+      levelPercent: Number(levelPercent) || null,
+      timestamp
+    });
+
+    if (analysis.alerts.length > 0) {
+      console.log(`[waterAnalytics] Alert generati per ${devEui}:`, analysis.alerts.map(a => a.type));
+    }
+
+  } catch (error) {
+    console.error(`[waterAnalytics] Errore analisi pacchetto ${devEui}:`, error);
+  }
+}
+
+/**
+ * Analizza pacchetto dati aria con "Sesto Senso Aria"
+ */
+async function analyzeAirPacket(sensor, devEui, airData, timestamp) {
+  try {
+    console.log(`[airAnalytics] Analisi pacchetto aria da ${devEui}:`, airData);
+
+    // Esegui analisi intelligente aria
+    const analysis = await analyzeAirData({
+      nodeId: devEui,
+      co2: airData.co2Ppm || null,
+      voc: airData.vocIndex || null,
+      lux: airData.lux || null,
+      timestamp
+    });
+
+    if (analysis.alerts.length > 0) {
+      console.log(`[airAnalytics] Alert generati per ${devEui}:`, analysis.alerts.map(a => a.title));
+    }
+
+  } catch (error) {
+    console.error(`[airAnalytics] Errore analisi pacchetto ${devEui}:`, error);
+  }
+}
+
 module.exports = {
   extractTtnFields,
   binaryDecodeCategory,
@@ -394,4 +540,5 @@ module.exports = {
   ingestTtnWebhook,
   frmPayloadToBuffer,
   parseIngestTimestampUtc,
+  analyzeWaterPacket,
 };

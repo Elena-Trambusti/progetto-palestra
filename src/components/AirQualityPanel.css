@@ -1,0 +1,373 @@
+/* Air Quality Panel Styles */
+.air-quality-panel {
+  --primary-color: #0891b2;
+  --success-color: #22c55e;
+  --warning-color: #f59e0b;
+  --danger-color: #ef4444;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --bg-glass: rgba(15, 23, 42, 0.8);
+  --border-glass: rgba(148, 163, 184, 0.2);
+  --metric-bg: rgba(30, 41, 59, 0.5);
+  --metric-border: rgba(71, 85, 105, 0.5);
+  --alert-bg: rgba(127, 29, 29, 0.2);
+  padding: clamp(0.75rem, 3vw, 1.1rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-height: 0;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.air-quality-panel--loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.air-quality-panel__head {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border-glass);
+}
+
+.air-quality-panel__icon {
+  width: 24px;
+  height: 24px;
+  color: var(--primary-color);
+  filter: drop-shadow(0 0 8px rgba(8, 145, 178, 0.4));
+  flex-shrink: 0;
+}
+
+.air-quality-panel__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.air-quality-panel__hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+}
+
+/* Indice Qualità Aria */
+.air-quality-panel__index {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+  padding: 0.85rem;
+  background: var(--metric-bg);
+  border-radius: 8px;
+  border: 1px solid var(--metric-border);
+  backdrop-filter: blur(10px);
+}
+
+.air-quality-panel__index-circle {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 4px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.air-quality-panel__index-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.air-quality-panel__index-inner {
+  width: 60px;
+  height: 60px;
+  background: white;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.air-quality-panel__index-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.air-quality-panel__index-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.air-quality-panel__index-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.air-quality-panel__index-status {
+  font-size: 1.125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.air-quality-panel__index-desc {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+/* Metriche Grid */
+.air-quality-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .air-quality-panel__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.air-quality-panel__tile {
+  background: var(--metric-bg);
+  border: 1px solid var(--metric-border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  position: relative;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.air-quality-panel__tile:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: var(--border-glass);
+}
+
+.air-quality-panel__tile-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.air-quality-panel__label {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.air-quality-panel__value {
+  display: block;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+  margin-bottom: 0.125rem;
+}
+
+.air-quality-panel__unit {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.air-quality-panel__alert {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 4px;
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--warning-color);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.air-quality-panel__alert.critical {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger-color);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+/* Allarmi Section */
+.air-quality-panel__alerts {
+  background: var(--alert-bg);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.85rem;
+  backdrop-filter: blur(10px);
+}
+
+.air-quality-panel__alerts-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--danger-color);
+  margin: 0 0 0.75rem 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.air-quality-panel__alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.air-quality-panel__alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--metric-bg);
+  border-radius: 6px;
+  border-left: 3px solid;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.air-quality-panel__alert-item:hover {
+  transform: translateX(2px);
+  border-color: var(--border-glass);
+}
+
+.air-quality-panel__alert-item strong {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.air-quality-panel__alert-item p {
+  font-size: 0.688rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+/* Status Section */
+.air-quality-panel__status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-glass);
+  font-size: 0.688rem;
+  color: var(--text-secondary);
+}
+
+.air-quality-panel__status-item {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.air-quality-panel__status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success-color);
+}
+
+.air-quality-panel__status-dot.excellent {
+  background: var(--success-color);
+}
+
+.air-quality-panel__status-dot.good {
+  background: #22c55e;
+}
+
+.air-quality-panel__status-dot.moderate {
+  background: var(--warning-color);
+}
+
+.air-quality-panel__status-dot.poor {
+  background: #f97316;
+}
+
+.air-quality-panel__status-dot.hazardous {
+  background: var(--critical-color);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .air-quality-panel__grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .air-quality-panel__index {
+    flex-direction: column;
+    text-align: center;
+    gap: 0.85rem;
+  }
+  
+  .air-quality-panel__status {
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: center;
+  }
+  
+  .air-quality-panel__alerts-list {
+    gap: 0.375rem;
+  }
+  
+  .air-quality-panel__alert-item {
+    padding: 0.5rem;
+  }
+}
+
+/* Animation States */
+.air-quality-panel.animate-in {
+  animation: slideInUp 0.5s ease-out;
+}
+
+.air-quality-panel.animate-in-delay-2 {
+  animation-delay: 0.2s;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

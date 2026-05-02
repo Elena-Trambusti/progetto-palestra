@@ -74,6 +74,9 @@ async function ensureSchema(client) {
       type VARCHAR(64) NOT NULL,
       min_threshold DOUBLE PRECISION,
       max_threshold DOUBLE PRECISION,
+      total_liters_flowed DOUBLE PRECISION DEFAULT 0,
+      night_flow_threshold DOUBLE PRECISION DEFAULT 0.1,
+      filter_maintenance_limit DOUBLE PRECISION DEFAULT 10000,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -82,6 +85,10 @@ async function ensureSchema(client) {
       id BIGSERIAL PRIMARY KEY,
       sensor_id INTEGER NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
       value DOUBLE PRECISION NOT NULL,
+      co2 INTEGER,
+      voc INTEGER,
+      lux INTEGER,
+      sensor_type VARCHAR(32),
       rssi DOUBLE PRECISION,
       snr DOUBLE PRECISION,
       battery DOUBLE PRECISION,
@@ -89,10 +96,13 @@ async function ensureSchema(client) {
     );
   `);
   await client.query(
-    `CREATE INDEX IF NOT EXISTS idx_measurements_sensor_time ON measurements (sensor_id, timestamp DESC);`
+    `CREATE INDEX IF NOT EXISTS idx_measurements_sensor_time ON measurements (sensor_id, timestamp DESC);`,
   );
   await client.query(
-    `CREATE INDEX IF NOT EXISTS idx_sensors_location ON sensors (location);`
+    `CREATE INDEX IF NOT EXISTS idx_measurements_type_time ON measurements (sensor_type, timestamp DESC);`,
+  );
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS idx_sensors_location ON sensors (location);`,
   );
 }
 
@@ -157,15 +167,17 @@ function uplinkStatus(lastIso) {
 function thresholdFlag(value, minT, maxT) {
   if (value == null || !Number.isFinite(Number(value))) return null;
   const v = Number(value);
-  if (minT != null && Number.isFinite(Number(minT)) && v < Number(minT)) return "low";
-  if (maxT != null && Number.isFinite(Number(maxT)) && v > Number(maxT)) return "high";
+  if (minT != null && Number.isFinite(Number(minT)) && v < Number(minT))
+    return "low";
+  if (maxT != null && Number.isFinite(Number(maxT)) && v > Number(maxT))
+    return "high";
   return null;
 }
 
 async function listDistinctLocations() {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT DISTINCT location FROM sensors ORDER BY location ASC`
+      `SELECT DISTINCT location FROM sensors ORDER BY location ASC`,
     );
     return r.rows.map((row) => String(row.location));
   });
@@ -177,7 +189,7 @@ async function listSensorsAll() {
       `SELECT id, dev_eui AS "devEui", name, location, type,
  min_threshold AS "minThreshold", max_threshold AS "maxThreshold",
               created_at AS "createdAt"
-       FROM sensors ORDER BY location ASC, name ASC`
+       FROM sensors ORDER BY location ASC, name ASC`,
     );
     return r.rows;
   });
@@ -192,7 +204,7 @@ async function listSensorsForLocation(location) {
       `SELECT dev_eui AS "devEui", name, type, location,
               min_threshold AS "minThreshold", max_threshold AS "maxThreshold"
        FROM sensors WHERE location = $1 ORDER BY name ASC`,
-      [loc]
+      [loc],
     );
     return r.rows;
   });
@@ -233,7 +245,7 @@ async function insertSensor(row) {
          VALUES ($1,$2,$3,$4,$5,$6)
          RETURNING id, dev_eui AS "devEui", name, location, type,
                    min_threshold AS "minThreshold", max_threshold AS "maxThreshold"`,
-        [dev, name, location, type, minT, maxT]
+        [dev, name, location, type, minT, maxT],
       );
       return r.rows[0];
     } catch (e) {
@@ -311,7 +323,7 @@ async function updateSensor(id, patch) {
          WHERE id = $1
          RETURNING id, dev_eui AS "devEui", name, location, type,
                    min_threshold AS "minThreshold", max_threshold AS "maxThreshold"`,
-        [id, devEui, nextName, nextLocation, nextType, nextMin, nextMax]
+        [id, devEui, nextName, nextLocation, nextType, nextMin, nextMax],
       );
       return r.rows[0] || null;
     } catch (e) {
@@ -323,7 +335,9 @@ async function updateSensor(id, patch) {
 
 async function deleteSensor(id) {
   return withClient(async (c) => {
-    const r = await c.query(`DELETE FROM sensors WHERE id = $1 RETURNING id`, [id]);
+    const r = await c.query(`DELETE FROM sensors WHERE id = $1 RETURNING id`, [
+      id,
+    ]);
     return Boolean(r.rows.length);
   });
 }
@@ -357,7 +371,7 @@ async function fetchLatestMeasurements(sensorIds, client = null) {
        FROM measurements
        WHERE sensor_id = ANY($1::int[])
        ORDER BY sensor_id, timestamp DESC`,
-      [sensorIds]
+      [sensorIds],
     );
     const m = new Map();
     for (const row of r.rows) {
@@ -376,49 +390,36 @@ function measurementTimestampToUtcIso(timestamp) {
   return d.toISOString();
 }
 
-async function insertMeasurement({ sensorId, value, rssi, snr, battery, timestamp }) {
+async function insertMeasurement({
+  sensorId,
+  value,
+  co2,
+  voc,
+  lux,
+  sensorType,
+  rssi,
+  snr,
+  battery,
+  timestamp,
+}) {
   const tsIsoUtc = measurementTimestampToUtcIso(timestamp);
   return withClient(async (c) => {
     await c.query(
-      `INSERT INTO measurements (sensor_id, value, rssi, snr, battery, timestamp)
-       VALUES ($1,$2,$3,$4,$5,$6::timestamptz)`,
+      `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery, timestamp)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz)`,
       [
         sensorId,
         Number(value),
+        co2 == null ? null : Number(co2),
+        voc == null ? null : Number(voc),
+        lux == null ? null : Number(lux),
+        sensorType || null,
         rssi == null ? null : Number(rssi),
         snr == null ? null : Number(snr),
         battery == null ? null : Number(battery),
         tsIsoUtc,
-      ]
+      ],
     );
-  });
-}
-
-async function temperatureSeriesForLocation(location, limit = 120) {
-  return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT m.timestamp AS t, m.value AS v
-       FROM measurements m
-       JOIN sensors s ON s.id = m.sensor_id
-       WHERE s.location = $1
-         AND (
-           lower(s.type) LIKE 'temp%'
-           OR lower(s.type) LIKE '%temperatura%'
-           OR lower(s.type) = 't'
-         )
-       ORDER BY m.timestamp DESC
-       LIMIT $2`,
-      [location, limit]
-    );
-    const rows = r.rows.slice().reverse();
-    return rows.map((row) => {
-      const iso = new Date(row.t).toISOString();
-      return {
-        label: iso,
-        value: Number(row.v),
-        iso,
-      };
-    });
   });
 }
 
@@ -439,6 +440,10 @@ async function historySamplesForLocation(location, limit, range) {
     const r = await c.query(
       `SELECT m.timestamp AS iso,
               m.value AS value,
+              m.co2 AS co2,
+              m.voc AS voc,
+              m.lux AS lux,
+              m.sensor_type AS "sensorType",
               s.type AS type,
               s.name AS name,
               s.dev_eui AS "devEui",
@@ -450,24 +455,30 @@ async function historySamplesForLocation(location, limit, range) {
        WHERE s.location = $1 ${whereTime}
        ORDER BY m.timestamp DESC
        LIMIT $${limIdx}`,
-      params
+      params,
     );
     return r.rows.map((row) => ({
       iso: new Date(row.iso).toISOString(),
       temp:
-        String(row.type || "").toLowerCase().includes("temp") ||
-        String(row.type || "").toLowerCase().includes("temperatura")
+        String(row.type || "")
+          .toLowerCase()
+          .includes("temp") ||
+        String(row.type || "")
+          .toLowerCase()
+          .includes("temperatura")
           ? Number(row.value)
           : null,
       value: Number(row.value),
+      co2: row.co2 != null ? Number(row.co2) : null,
+      voc: row.voc != null ? Number(row.voc) : null,
+      lux: row.lux != null ? Number(row.lux) : null,
       sensorType: row.type,
+      sensorData: row.sensorType, // Nuovo campo sensor_type
       sensorName: row.name,
       devEui: row.devEui != null ? String(row.devEui).toUpperCase() : "",
       minThreshold: row.minThreshold != null ? Number(row.minThreshold) : null,
       maxThreshold: row.maxThreshold != null ? Number(row.maxThreshold) : null,
       humidity: null,
-      co2: null,
-      voc: null,
       rssi: row.rssi,
       snr: row.snr,
       battery: row.battery,
@@ -497,7 +508,7 @@ async function csvRowsForLocation(location, cap, range) {
        WHERE s.location = $1 ${whereTime}
        ORDER BY m.timestamp ASC
        LIMIT $${limIdx}`,
-      params
+      params,
     );
     return r.rows;
   });
@@ -507,7 +518,9 @@ function buildActiveAlarms(sensorRows, latestMap) {
   const alarms = [];
   for (const s of sensorRows) {
     const last = latestMap.get(s.id);
-    const st = uplinkStatus(last?.timestamp?.toISOString?.() || last?.timestamp);
+    const st = uplinkStatus(
+      last?.timestamp?.toISOString?.() || last?.timestamp,
+    );
     if (st === "offline") {
       alarms.push({
         code: "sensor_offline",
@@ -566,8 +579,12 @@ function buildActiveAlarms(sensorRows, latestMap) {
 function pickFirstTempSensor(sensors, latestMap) {
   const temps = sensors.filter(
     (s) =>
-      String(s.type || "").toLowerCase().includes("temp") ||
-      String(s.type || "").toLowerCase().includes("temperatura")
+      String(s.type || "")
+        .toLowerCase()
+        .includes("temp") ||
+      String(s.type || "")
+        .toLowerCase()
+        .includes("temperatura"),
   );
   const list = temps.length ? temps : sensors;
   for (const s of list) {
@@ -587,17 +604,30 @@ function environmentFromSensorCards(cards) {
   };
   for (const c of cards || []) {
     const ty = String(c.type || "").toLowerCase();
+    
+    // Prima controlla i campi specifici del database (nuova logica multi-sensore)
+    if (c.co2 != null && Number.isFinite(Number(c.co2))) {
+      env.co2Ppm = Number(c.co2);
+    }
+    if (c.voc != null && Number.isFinite(Number(c.voc))) {
+      env.vocIndex = Number(c.voc);
+    }
+    if (c.lux != null && Number.isFinite(Number(c.lux))) {
+      env.lightLux = Number(c.lux);
+    }
+    
+    // Fallback alla logica basata sul tipo per compatibilità
     if (c.value == null || !Number.isFinite(Number(c.value))) continue;
     const v = Number(c.value);
     if (ty.includes("umid") || ty.includes("humid") || ty === "rh") {
       env.humidityPercent = v;
-    } else if (ty.includes("co2")) {
+    } else if (ty.includes("co2") && env.co2Ppm == null) {
       env.co2Ppm = v;
-    } else if (ty.includes("voc") || ty.includes("iaq")) {
+    } else if ((ty.includes("voc") || ty.includes("iaq")) && env.vocIndex == null) {
       env.vocIndex = v;
-    } else if (ty.includes("lux") || ty.includes("luce")) {
+    } else if ((ty.includes("lux") || ty.includes("luce")) && env.lightLux == null) {
       env.lightLux = v;
-    } else if (ty.includes("fluss") || ty.includes("flow")) {
+    } else if ((ty.includes("fluss") || ty.includes("flow")) && env.flowLmin == null) {
       env.flowLmin = v;
     }
   }
@@ -628,7 +658,7 @@ async function buildDashboardPayload(location) {
     const allSensors = (
       await c.query(
         `SELECT id, dev_eui, name, location, type, min_threshold, max_threshold
-         FROM sensors ORDER BY location ASC, name ASC`
+         FROM sensors ORDER BY location ASC, name ASC`,
       )
     ).rows;
 
@@ -644,7 +674,9 @@ async function buildDashboardPayload(location) {
         ? new Date(last.timestamp).toISOString()
         : null;
       const st = uplinkStatus(ts);
-      const tf = last ? thresholdFlag(last.value, s.min_threshold, s.max_threshold) : null;
+      const tf = last
+        ? thresholdFlag(last.value, s.min_threshold, s.max_threshold)
+        : null;
       return {
         id: s.id,
         devEui: s.dev_eui,
@@ -658,10 +690,8 @@ async function buildDashboardPayload(location) {
         lastTimestamp: ts,
         status: st,
         thresholdAlarm: tf,
-        minThreshold:
-          s.min_threshold == null ? null : Number(s.min_threshold),
-        maxThreshold:
-          s.max_threshold == null ? null : Number(s.max_threshold),
+        minThreshold: s.min_threshold == null ? null : Number(s.min_threshold),
+        maxThreshold: s.max_threshold == null ? null : Number(s.max_threshold),
       };
     });
 
@@ -677,16 +707,19 @@ async function buildDashboardPayload(location) {
          )
        ORDER BY m.timestamp DESC
        LIMIT $2`,
-      [location, 120]
+      [location, 120],
     );
-    const series = seriesR.rows.slice().reverse().map((row) => {
-      const iso = new Date(row.t).toISOString();
-      return {
-        label: iso,
-        value: Number(row.v),
-        iso,
-      };
-    });
+    const series = seriesR.rows
+      .slice()
+      .reverse()
+      .map((row) => {
+        const iso = new Date(row.t).toISOString();
+        return {
+          label: iso,
+          value: Number(row.v),
+          iso,
+        };
+      });
 
     const lastTemp = pickFirstTempSensor(sensors, latestAll);
     const waterLevel = pickWaterApprox(sensors, latestAll);
@@ -716,17 +749,25 @@ async function buildDashboardPayload(location) {
         uplinkAt: ts,
         status: uplinkStatus(ts),
         metrics: {
-          temperatureC: String(s.type || "").toLowerCase().includes("temp")
-            ? last?.value ?? null
+          temperatureC: String(s.type || "")
+            .toLowerCase()
+            .includes("temp")
+            ? (last?.value ?? null)
             : null,
-          levelPercent: null,
+          levelPercent: String(s.type || "")
+            .toLowerCase()
+            .includes("water")
+            ? (last?.value ?? null)
+            : null,
           humidityPercent: null,
-          lightLux: null,
-          flowLmin: null,
-          co2Ppm: String(s.type || "").toLowerCase().includes("co2")
-            ? last?.value ?? null
+          lightLux: last?.lux != null ? Number(last.lux) : null,
+          flowLmin: String(s.type || "")
+            .toLowerCase()
+            .includes("flow")
+            ? (last?.value ?? null)
             : null,
-          vocIndex: null,
+          co2Ppm: last?.co2 != null ? Number(last.co2) : null,
+          vocIndex: last?.voc != null ? Number(last.voc) : null,
         },
       };
     });
@@ -764,7 +805,7 @@ async function buildDashboardPayload(location) {
                 COUNT(*)::int AS cnt
          FROM sensors
          GROUP BY location
-         ORDER BY location ASC`
+         ORDER BY location ASC`,
       )
     ).rows.map((row, idx) => ({
       id: row.location,
@@ -809,7 +850,10 @@ async function buildDashboardPayload(location) {
       },
       floors: [],
       siteZones,
-      temperatureSeries: series.map((p) => ({ label: p.label, value: p.value })),
+      temperatureSeries: series.map((p) => ({
+        label: p.label,
+        value: p.value,
+      })),
       currentTemperature: lastTemp,
       waterLevelPercent: waterLevel != null ? waterLevel : null,
       environment: environmentFromSensorCards(sensorCards),
@@ -834,12 +878,52 @@ async function buildDashboardPayload(location) {
   });
 }
 
-async function closePool() {
-  if (pool) {
-    await pool.end();
-    pool = null;
-  }
+/**
+ * Aggiorna il contatore totale litri per un sensore acqua
+ */
+async function incrementTotalLiters(sensorId, additionalLiters) {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `UPDATE sensors 
+       SET total_liters_flowed = total_liters_flowed + $1
+       WHERE id = $2
+       RETURNING total_liters_flowed, night_flow_threshold, filter_maintenance_limit`,
+      [additionalLiters, sensorId]
+    );
+    return r.rows[0] || null;
+  });
 }
+
+/**
+ * Recupera soglie configurate per sensore acqua
+ */
+async function getWaterThresholds(sensorId) {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT total_liters_flowed, night_flow_threshold, filter_maintenance_limit
+       FROM sensors WHERE id = $1`,
+      [sensorId]
+    );
+    return r.rows[0] || null;
+  });
+}
+
+/**
+ * Resetta contatore litri (es. dopo cambio filtri)
+ */
+async function resetTotalLiters(sensorId) {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `UPDATE sensors 
+       SET total_liters_flowed = 0
+       WHERE id = $1
+       RETURNING total_liters_flowed`,
+      [sensorId]
+    );
+    return r.rows[0] || null;
+  });
+}
+
 
 /**
  * Ping leggero per readiness probe (es. load balancer / orchestrator).
@@ -886,4 +970,7 @@ module.exports = {
   historySamplesForLocation,
   csvRowsForLocation,
   fetchLatestMeasurements,
+  incrementTotalLiters,
+  getWaterThresholds,
+  resetTotalLiters,
 };

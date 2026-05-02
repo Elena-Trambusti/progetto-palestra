@@ -351,9 +351,53 @@ async function notifyRecovery({ nodeId, type }) {
   return result;
 }
 
+/**
+ * Invia notifica informativa (senza cooldown restrittivo)
+ * @param {Object} params
+ * @param {string} params.title
+ * @param {string} params.message
+ * @param {string} params.nodeId
+ * @param {Object} params.metrics
+ * @returns {Promise<{ok: boolean}>}
+ */
+async function notifyInfo({ title, message, nodeId, metrics }) {
+  if (!isTelegramConfigured()) return { ok: false, skipped: true };
+
+  const node = findNode(nodeId);
+  const zone = node ? findZone(node.zoneId) : null;
+
+  const nodeName = node?.label || nodeId;
+  const zoneName = zone?.name || node?.zoneId || "Zona sconosciuta";
+  const floor = zone?.floor || node?.floor || "?";
+
+  // Per notifiche info usiamo cooldown più breve (5 minuti)
+  const key = `info:${nodeId}:${title}`;
+  if (!canSend(key, 5 * 60 * 1000, lastWarningSent)) {
+    return { ok: false, cooldown: true };
+  }
+
+  const text = [
+    `ℹ️ <b>${title}</b>`,
+    "",
+    `📡 Nodo: ${nodeName} (${nodeId})`,
+    `📍 ${zoneName}\n🗺️ Piano ${floor}`,
+    "",
+    message,
+    "",
+    `🕐 ${formatItalianTime()} (ITA)`,
+  ].join("\n");
+
+  const result = await sendTelegramMessage(text);
+  if (result.ok) {
+    console.log(`[telegramNotifier] INFO inviato: ${nodeId} - ${title}`);
+  }
+  return result;
+}
+
 module.exports = {
   notifyCriticalAlarm,
   notifyWarning,
+  notifyInfo,
   notifyBatteryAlert,
   notifyNodeOffline,
   notifyWeakSignal,

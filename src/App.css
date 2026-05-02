@@ -219,6 +219,25 @@
     align-items: stretch;
   }
 
+  /* Layout a singola colonna quando non ci sono sensori */
+  .dashboard-grid--no-sensors {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "header"
+      "tabs"
+      "alarms"
+      "zones"
+      "mapbar"
+      "chart"
+      "terminal";
+  }
+
+  /* Nascondi area rightcol nel layout no-sensors */
+  .dashboard-grid--no-sensors .area-rightcol {
+    display: none;
+  }
+}
+
   .dashboard-grid--floorplan {
     grid-template-rows:
       auto auto auto auto auto minmax(200px, 0.55fr) minmax(240px, 1fr) auto;
@@ -274,7 +293,6 @@
   .dashboard-grid--node .area-node {
     min-height: 640px;
   }
-}
 
 .area-header {
   grid-area: header;

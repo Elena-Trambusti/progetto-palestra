@@ -4,7 +4,9 @@ import Header from "./components/Header";
 import ZoneSelector from "./components/ZoneSelector";
 import TemperatureChart from "./components/TemperatureChart";
 import WaterLevelGauge from "./components/WaterLevelGauge";
+import WaterSavingsPanel from "./components/WaterSavingsPanel";
 import EnvironmentalPanel from "./components/EnvironmentalPanel";
+import AirQualityPanel from "./components/AirQualityPanel";
 import HackerTerminal from "./components/HackerTerminal";
 import LoginPanel from "./components/LoginPanel";
 import ConnectionBanner from "./components/ConnectionBanner";
@@ -128,6 +130,7 @@ export default function App() {
 
   const postgresNoSensors =
     dataProfile === "postgres" && !dashboardLoading && sensorCards.length === 0;
+
   const emptyDbMessage =
     zones.length === 0
       ? "Nessun sensore registrato. Vai in Configurazione (#/configurazione)."
@@ -168,6 +171,8 @@ export default function App() {
           mainTab === "dashboard" && showFloorPlan
             ? " dashboard-grid--floorplan"
             : ""
+        }${
+          mainTab === "dashboard" ? " dashboard-grid--no-sensors" : ""
         }`}
       >
         <div className="area-header">
@@ -243,18 +248,30 @@ export default function App() {
             </div>
             <div className="area-rightcol">
               {postgresNoSensors ? (
-                <section className="env-panel glass-panel animate-in animate-in-delay-2">
-                  <p
-                    className="mono"
-                    style={{
-                      padding: "1.25rem",
-                      color: "#d4d4d8",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {emptyDbMessage}
-                  </p>
-                </section>
+                <>
+                  <ErrorBoundary>
+                    <AirQualityPanel
+                      humidityPercent={humidityPercent}
+                      co2Ppm={co2Ppm}
+                      vocIndex={vocIndex}
+                      lightLux={lightLux}
+                      flowLmin={flowLmin}
+                      loading={dashboardLoading}
+                    />
+                  </ErrorBoundary>
+                  <section className="env-panel glass-panel animate-in animate-in-delay-2">
+                    <p
+                      className="mono"
+                      style={{
+                        padding: "1.25rem",
+                        color: "#d4d4d8",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {emptyDbMessage}
+                    </p>
+                  </section>
+                </>
               ) : (
                 <>
                   {water != null ? (
@@ -272,6 +289,19 @@ export default function App() {
                       />
                     </ErrorBoundary>
                   ) : null}
+                  <ErrorBoundary>
+                    <WaterSavingsPanel />
+                  </ErrorBoundary>
+                  <ErrorBoundary>
+                    <AirQualityPanel
+                      humidityPercent={humidityPercent}
+                      co2Ppm={co2Ppm}
+                      vocIndex={vocIndex}
+                      lightLux={lightLux}
+                      flowLmin={flowLmin}
+                      loading={dashboardLoading}
+                    />
+                  </ErrorBoundary>
                   {sensorCards.length > 0 ? (
                     <ErrorBoundary>
                       <SensorDynamicGrid

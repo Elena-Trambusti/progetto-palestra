@@ -1367,6 +1367,89 @@ app.get("/api/dashboard/snapshot", limitApiRead, async (req, res) => {
   res.json(payload);
 });
 
+/**
+ * "Sesto Senso" - API Risparmio Idrico
+ * Fornisce dati su consumi, sprechi e manutenzione predittiva
+ */
+app.get("/api/water/savings", limitApiRead, async (req, res) => {
+  try {
+    if (!pgStore) {
+      return res.status(503).json({ error: "database_unavailable" });
+    }
+
+    const { getWaterThresholds, findSensorByDevEui } = pgStore;
+    
+    // Recupera tutti i sensori acqua/flusso
+    const waterNodes = ["node-water-01", "node-flow-01"];
+    const waterData = [];
+
+    for (const nodeId of waterNodes) {
+      const sensor = await findSensorByDevEui(nodeId);
+      if (!sensor) continue;
+
+      const thresholds = await getWaterThresholds(sensor.id);
+      if (!thresholds) continue;
+
+      // Calcola risparmio potenziale basato su allarmi recenti
+      const potentialSavings = {
+        nightLeakPrevented: thresholds.night_flow_threshold * 4 * 60, // L per notte
+        filterOptimization: thresholds.filter_maintenance_limit * 0.1, // 10% di spreco
+        totalPotentialSavings: 0
+      };
+      
+      potentialSavings.totalPotentialSavings = 
+        potentialSavings.nightLeakPrevented + potentialSavings.filterOptimization;
+
+      waterData.push({
+        nodeId,
+        sensorName: sensor.name,
+        location: sensor.location,
+        totalLitersFlowed: Math.round(thresholds.total_liters_flowed || 0),
+        filterMaintenanceLimit: thresholds.filter_maintenance_limit,
+        filterUsagePercent: Math.round((thresholds.total_liters_flowed / thresholds.filter_maintenance_limit) * 100),
+        nightFlowThreshold: thresholds.night_flow_threshold,
+        potentialSavings,
+        lastUpdated: new Date().toISOString()
+      });
+    }
+
+    // Calcola totali e metriche aggregate
+    const totalData = {
+      totalLitersAllNodes: waterData.reduce((sum, d) => sum + d.totalLitersFlowed, 0),
+      totalPotentialSavings: waterData.reduce((sum, d) => sum + d.potentialSavings.totalPotentialSavings, 0),
+      averageFilterUsage: waterData.length > 0 
+        ? Math.round(waterData.reduce((sum, d) => sum + d.filterUsagePercent, 0) / waterData.length)
+        : 0,
+      activeWaterNodes: waterData.length,
+      nodesNeedingMaintenance: waterData.filter(d => d.filterUsagePercent >= 90).length
+    };
+
+    res.json({
+      success: true,
+      data: {
+        nodes: waterData,
+        totals: totalData,
+        insights: {
+          status: totalData.nodesNeedingMaintenance > 0 ? "maintenance_needed" : "optimal",
+          recommendation: totalData.nodesNeedingMaintenance > 0 
+            ? `${totalData.nodesNeedingMaintenance} nodi richiedono manutenzione filtri`
+            : "Sistema operativo efficiente",
+          estimatedMonthlySavings: Math.round(totalData.totalPotentialSavings * 30), // Stima mensile
+          co2Reduction: Math.round(totalData.totalPotentialSavings * 0.0003) // 0.3kg CO2 per litro
+        },
+        generated_at: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error("[API] /api/water/savings error:", error);
+    res.status(500).json({ 
+      error: "internal_error", 
+      message: "Errore recupero dati risparmio idrico" 
+    });
+  }
+});
+
 app.get("/api/history", limitApiRead, async (req, res) => {
   const fromIso = String(req.query.from || "").trim();
   const toIso = String(req.query.to || "").trim();

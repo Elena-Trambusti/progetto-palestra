@@ -54,6 +54,10 @@ function makeReading({ nodeId, zoneId }) {
   // Temperatura sempre presente (server la richiede)
   sensors.temperatureC = Number(rand(21, 33).toFixed(1));
 
+  // "Sesto Senso" Test - Simula perdita notturna alle 03:00
+  const currentHour = new Date().getHours();
+  const isNightLeakTest = currentHour >= 3 && currentHour < 4; // Test tra 03:00-04:00
+
   if (nodeId === "node-water-01") {
     sensors.levelPercent = Math.round(rand(10, 92));
   }
@@ -62,7 +66,13 @@ function makeReading({ nodeId, zoneId }) {
     sensors.lightLux = Math.round(rand(70, 900));
   }
   if (nodeId === "node-flow-01") {
-    sensors.flowLmin = Number(rand(0.2, 26).toFixed(1));
+    // TEST PERDITA NOTTURNA: flusso anomalo 0.5 L/min tra 03:00-04:00
+    if (isNightLeakTest) {
+      sensors.flowLmin = 0.5; // Perdita notturna simulata
+      console.log(`[SIMULAZIONE] 🚨 PERDITA NOTTURNA SIMULATA - node-flow-01: 0.5 L/min alle ${currentHour}:00`);
+    } else {
+      sensors.flowLmin = Number(rand(0.2, 26).toFixed(1));
+    }
     sensors.levelPercent = Math.round(rand(15, 95));
   }
   if (nodeId === "node-air-01") {
