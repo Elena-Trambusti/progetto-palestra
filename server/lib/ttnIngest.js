@@ -14,10 +14,15 @@ const { analyzeWaterData } = require("./waterAnalytics");
 const { analyzeAirData } = require("./airAnalytics");
 
 /**
- * Mappatura dinamica sensori per distinguere tipi e campi
- * Estensibile per futuri sensori (vibrazione, temperatura, etc.)
+ * Mappatura dinamica sensori - LEGGE DA ENV oppure usa defaults
+ * Permette aggiungere nuovi sensori senza modificare il codice
+ * 
+ * Configurazione via env:
+ * SENSOR_MAPPINGS_JSON={"node-custom-01":{"type":"air","fields":["co2Ppm","temperatureC"],"sensorType":"custom-air"}}
+ * 
+ * Oppure verrà letta da database tabella sensor_mappings (se esiste)
  */
-const SENSOR_MAPPINGS = {
+const DEFAULT_SENSOR_MAPPINGS = {
   // Sensori Acqua
   'node-flow-01': {
     type: 'water',
@@ -46,11 +51,65 @@ const SENSOR_MAPPINGS = {
 };
 
 /**
+ * Carica mappature da ENV o usa defaults
+ * @returns {Object} Mappature sensori
+ */
+function loadSensorMappings() {
+  // 1. Prova a leggere da env
+  const envMappings = process.env.SENSOR_MAPPINGS_JSON;
+  if (envMappings) {
+    try {
+      const parsed = JSON.parse(envMappings);
+      console.log('[ttnIngest] Mappature sensori caricate da SENSOR_MAPPINGS_JSON:', Object.keys(parsed).length, 'sensori');
+      return { ...DEFAULT_SENSOR_MAPPINGS, ...parsed };
+    } catch (err) {
+      console.error('[ttnIngest] Errore parsing SENSOR_MAPPINGS_JSON:', err.message);
+    }
+  }
+  
+  // 2. Altrimenti usa defaults
+  return DEFAULT_SENSOR_MAPPINGS;
+}
+
+// Cache mappature (ricaricate ogni volta per permettere hot-reload in dev)
+const SENSOR_MAPPINGS = loadSensorMappings();
+
+/**
  * Estrae i campi specifici per tipo di sensore dal payload
+ * Supporta mappature dinamiche e fallback generico
  */
 function extractSensorData(deviceId, payload) {
-  const mapping = SENSOR_MAPPINGS[deviceId];
+  // Ricarica mappature (per hot-reload in dev)
+  const mappings = process.env.NODE_ENV === 'development' ? loadSensorMappings() : SENSOR_MAPPINGS;
+  
+  const mapping = mappings[deviceId];
+  
+  // Se non c'è mappatura specifica, prova inferenza dal deviceId
   if (!mapping) {
+    // Pattern matching per tipo da nome device
+    const deviceLower = String(deviceId).toLowerCase();
+    if (deviceLower.includes('flow') || deviceLower.includes('water')) {
+      return { 
+        type: 'water', 
+        data: payload, 
+        sensorType: 'water-generic' 
+      };
+    }
+    if (deviceLower.includes('air') || deviceLower.includes('env')) {
+      return { 
+        type: 'air', 
+        data: payload, 
+        sensorType: 'air-generic' 
+      };
+    }
+    if (deviceLower.includes('temp')) {
+      return { 
+        type: 'temperature', 
+        data: payload, 
+        sensorType: 'temp-generic' 
+      };
+    }
+    
     return { type: 'unknown', data: payload, sensorType: 'unknown' };
   }
   

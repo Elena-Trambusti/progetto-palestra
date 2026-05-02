@@ -27,6 +27,8 @@
     "postinstall": "patch-package || true",
     "telegram:test": "node scripts/telegram-test-send.js",
     "telegram:alarms": "node scripts/telegram-alarm-test.js",
+    "test:alarms": "node server/tools/testAlarms.js",
+    "test:alarms:list": "node server/tools/testAlarms.js --list",
     "sixth-sense:test": "node scripts/test-sixth-sense.js",
     "sixth-sense:dashboard": "node scripts/test-water-savings-dashboard.js",
     "start": "node server/index.js",
