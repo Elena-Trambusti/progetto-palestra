@@ -44,6 +44,9 @@ const {
 } = require("./lib/sessions");
 const { ingestTtnWebhook } = require("./lib/ttnIngest");
 const adminAuthLib = require("./lib/adminAuth");
+const backupManager = require("./lib/backupManager");
+const partitionManager = require("./lib/partitionManager");
+const rbacManager = require("./lib/rbacManager");
 
 // Moduli Telegram Bot Intelligente
 const { startBatteryMonitoring } = require("./lib/batteryAlerts");
@@ -103,6 +106,20 @@ const OPS_ALERT_INGEST_REJECTS_DELTA =
   Number(process.env.OPS_ALERT_INGEST_REJECTS_DELTA) || 5;
 const OPS_ALERT_MIN_REQUESTS =
   Number(process.env.OPS_ALERT_MIN_REQUESTS) || 30;
+
+// Backup automatico configurazione
+const BACKUP_AUTO_ENABLED =
+  String(process.env.BACKUP_AUTO_ENABLED || "true").toLowerCase() === "true";
+const BACKUP_INTERVAL_MS =
+  Number(process.env.BACKUP_INTERVAL_MS) || 24 * 60 * 60 * 1000; // Default: ogni 24 ore
+
+// Partizionamento automatico configurazione
+const PARTITION_AUTO_MAINTENANCE =
+  String(process.env.PARTITION_AUTO_MAINTENANCE || "true").toLowerCase() === "true";
+const PARTITION_MAINTENANCE_INTERVAL_MS =
+  Number(process.env.PARTITION_MAINTENANCE_INTERVAL_MS) || 24 * 60 * 60 * 1000; // Default: ogni 24 ore
+const PARTITION_MONTHS_KEEP =
+  Number(process.env.PARTITION_MONTHS_KEEP) || 3;
 
 if (REQUIRE_AUTH && !AUTH_PASSWORD) {
   console.error(
@@ -1904,6 +1921,193 @@ app.delete("/api/admin/sensors/:id", limitApiRead, adminAuthLib.requireAdminAuth
   }
 });
 
+/**
+ * Endpoint Backup - Gestione backup PostgreSQL
+ */
+app.get("/api/admin/backups", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
+  try {
+    const backups = backupManager.listBackups();
+    const stats = await backupManager.getDatabaseStats();
+    res.json({
+      backups,
+      databaseStats: stats,
+      retentionDays: backupManager.RETENTION_DAYS,
+      backupDir: backupManager.BACKUP_DIR,
+    });
+  } catch (err) {
+    logEvent("error", "admin_list_backups", {
+      error: err && err.message ? err.message : String(err),
+    });
+    res.status(500).json({ error: "backup_list_error" });
+  }
+});
+
+app.post("/api/admin/backup", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
+  try {
+    const stats = await backupManager.getDatabaseStats();
+    const backup = await backupManager.createBackup();
+    // Cleanup automatico dopo ogni backup
+    const cleanup = await backupManager.cleanupOldBackups();
+    res.json({
+      ok: true,
+      backup,
+      databaseStats: stats,
+      cleanup,
+    });
+  } catch (err) {
+    logEvent("error", "admin_create_backup", {
+      error: err && err.message ? err.message : String(err),
+    });
+    res.status(500).json({ error: "backup_failed", message: err.message });
+  }
+});
+
+app.post("/api/admin/backup/cleanup", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
+  try {
+    const result = await backupManager.cleanupOldBackups();
+    res.json({ ok: true, result });
+  } catch (err) {
+    logEvent("error", "admin_cleanup_backups", {
+      error: err && err.message ? err.message : String(err),
+    });
+    res.status(500).json({ error: "cleanup_failed" });
+  }
+});
+
+/**
+ * Endpoint Partition Manager - Gestione partizioni PostgreSQL
+ */
+app.get("/api/admin/partitions", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  try {
+    const stats = await partitionManager.getPartitionStats();
+    const partitions = await partitionManager.listPartitions();
+    res.json({
+      stats,
+      partitions,
+      monthsToKeep: PARTITION_MONTHS_KEEP,
+      archiveEnabled: process.env.PARTITION_ARCHIVE_OLD !== "false",
+    });
+  } catch (err) {
+    logEvent("error", "admin_list_partitions", {
+      error: err && err.message ? err.message : String(err),
+    });
+    res.status(500).json({ error: "partition_list_error" });
+  }
+});
+
+app.post("/api/admin/partitions/maintenance", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  try {
+    const result = await partitionManager.runPartitionMaintenance();
+    res.json({ ok: true, result });
+  } catch (err) {
+    logEvent("error", "admin_partition_maintenance", {
+      error: err && err.message ? err.message : String(err),
+    });
+    res.status(500).json({ error: "partition_maintenance_failed", message: err.message });
+  }
+});
+
+app.post("/api/admin/partitions/create", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  try {
+    const targetDate = req.body?.date ? new Date(req.body.date) : new Date();
+    const result = await partitionManager.createPartitionForMonth(targetDate);
+    res.json({ ok: true, result });
+  } catch (err) {
+    logEvent("error", "admin_create_partition", {
+      error: err && err.message ? err.message : String(err),
+    });
+    res.status(500).json({ error: "partition_create_failed", message: err.message });
+  }
+});
+
+/**
+ * Endpoint RBAC - Gestione utenti e audit trail
+ * Solo admin può gestire utenti, tutti gli utenti autenticati possono vedere audit
+ */
+app.get("/api/admin/users", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  try {
+    const users = await rbacManager.listUsers();
+    res.json({ users, roles: Object.values(rbacManager.ROLES) });
+  } catch (err) {
+    logEvent("error", "admin_list_users", { error: err?.message || String(err) });
+    res.status(500).json({ error: "users_list_error" });
+  }
+});
+
+app.post("/api/admin/users", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  try {
+    const { username, email, passwordHash, role } = req.body || {};
+    if (!username || !passwordHash) {
+      return res.status(400).json({ error: "missing_fields", hint: "username and passwordHash required" });
+    }
+    const auditContext = { userId: req.user?.id, username: req.user?.username, role: req.user?.role, ip: req.ip, userAgent: req.get("user-agent") };
+    const user = await rbacManager.createUser({ username, email, passwordHash, role, createdBy: req.user?.id }, auditContext);
+    res.status(201).json(user);
+  } catch (err) {
+    if (err.message?.includes("unique")) {
+      return res.status(409).json({ error: "username_exists", hint: "Username già in uso" });
+    }
+    logEvent("error", "admin_create_user", { error: err?.message || String(err) });
+    res.status(500).json({ error: "user_create_failed" });
+  }
+});
+
+app.patch("/api/admin/users/:id", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
+  try {
+    const auditContext = { userId: req.user?.id, username: req.user?.username, role: req.user?.role, ip: req.ip, userAgent: req.get("user-agent") };
+    const user = await rbacManager.updateUser(id, req.body || {}, auditContext);
+    if (!user) return res.status(404).json({ error: "not_found" });
+    res.json(user);
+  } catch (err) {
+    logEvent("error", "admin_update_user", { error: err?.message || String(err) });
+    res.status(500).json({ error: "user_update_failed" });
+  }
+});
+
+app.delete("/api/admin/users/:id", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
+  try {
+    const auditContext = { userId: req.user?.id, username: req.user?.username, role: req.user?.role, ip: req.ip, userAgent: req.get("user-agent") };
+    const user = await rbacManager.deleteUser(id, auditContext);
+    if (!user) return res.status(404).json({ error: "not_found" });
+    res.json({ ok: true, deleted: id });
+  } catch (err) {
+    logEvent("error", "admin_delete_user", { error: err?.message || String(err) });
+    res.status(500).json({ error: "user_delete_failed" });
+  }
+});
+
+app.get("/api/admin/audit", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
+  if (!pgStore) return res.status(503).json({ error: "database_required" });
+  try {
+    const { userId, action, resourceType, resourceId, from, to, limit = 100, offset = 0 } = req.query;
+    const result = await rbacManager.getAuditLogs({
+      userId: userId ? Number(userId) : undefined,
+      action,
+      resourceType,
+      resourceId,
+      fromDate: from,
+      toDate: to,
+      limit: Number(limit),
+      offset: Number(offset),
+    });
+    res.json(result);
+  } catch (err) {
+    logEvent("error", "admin_list_audit", { error: err?.message || String(err) });
+    res.status(500).json({ error: "audit_list_error" });
+  }
+});
+
 app.use((err, _req, res, next) => {
   if (err && err.message === "cors_origin_denied") {
     return res.status(403).json({ error: "cors_origin_denied" });
@@ -1992,6 +2196,53 @@ const ticker = setInterval(() => {
 }, 2000);
 const opsAlertTicker = setInterval(evaluateOpsAlerts, OPS_ALERT_CHECK_EVERY_MS);
 
+// Backup automatico schedulato (se abilitato e PG disponibile)
+let backupTicker = null;
+if (BACKUP_AUTO_ENABLED && pgStore) {
+  backupTicker = setInterval(async () => {
+    try {
+      console.log("[backup-auto] Avvio backup schedulato...");
+      const backup = await backupManager.createBackup();
+      const cleanup = await backupManager.cleanupOldBackups();
+      console.log(`[backup-auto] Completato: ${backup.filename}, cleanup: ${cleanup.deleted} rimossi`);
+    } catch (err) {
+      logEvent("error", "backup_auto_failed", {
+        error: err && err.message ? err.message : String(err),
+      });
+      console.error("[backup-auto] Fallito:", err.message);
+    }
+  }, BACKUP_INTERVAL_MS);
+}
+
+// Manutenzione automatica partizioni (se abilitata e PG disponibile)
+let partitionTicker = null;
+if (PARTITION_AUTO_MAINTENANCE && pgStore) {
+  // Esegui subito all'avvio per assicurare partizioni iniziali
+  setTimeout(async () => {
+    try {
+      console.log("[partition-auto] Inizializzazione partizioni...");
+      await partitionManager.ensureCurrentPartitions();
+      console.log("[partition-auto] Partizioni iniziali pronte");
+    } catch (err) {
+      console.error("[partition-auto] Errore inizializzazione:", err.message);
+    }
+  }, 5000);
+
+  // Poi schedula manutenzione periodica
+  partitionTicker = setInterval(async () => {
+    try {
+      console.log("[partition-auto] Avvio manutenzione partizioni...");
+      const result = await partitionManager.runPartitionMaintenance();
+      console.log(`[partition-auto] Completata: ${result.stats?.totalPartitions || 0} partizioni attive`);
+    } catch (err) {
+      logEvent("error", "partition_auto_failed", {
+        error: err && err.message ? err.message : String(err),
+      });
+      console.error("[partition-auto] Fallita:", err.message);
+    }
+  }, PARTITION_MAINTENANCE_INTERVAL_MS);
+}
+
 server.on("error", (err) => {
   if (err && err.code === "EADDRINUSE") {
     console.error(
@@ -2058,6 +2309,16 @@ async function startHttpServer() {
     if (pgStore) {
       console.log("  POST /api/ingest (webhook The Things Network · richiede DATABASE_URL)");
       console.log("  REST  CRUD /api/admin/sensors (gestione anagrafica sensori)");
+      console.log("  REST  CRUD /api/admin/backups (backup on-demand e auto-scheduled)");
+      console.log("  REST  CRUD /api/admin/partitions (gestione partizioni PostgreSQL)");
+      console.log("  REST  CRUD /api/admin/users (RBAC gestione utenti)");
+      console.log("  GET /api/admin/audit (audit trail con filtri)");
+      if (BACKUP_AUTO_ENABLED) {
+        console.log(`  [backup] Automatico ogni ${BACKUP_INTERVAL_MS / 3600000}h, retention ${process.env.BACKUP_RETENTION_DAYS || 7}giorni`);
+      }
+      if (PARTITION_AUTO_MAINTENANCE) {
+        console.log(`  [partition] Manutenzione ogni ${PARTITION_MAINTENANCE_INTERVAL_MS / 3600000}h, keep ${PARTITION_MONTHS_KEEP}mesi`);
+      }
     }
     if (IS_RENDER) {
       console.log(
