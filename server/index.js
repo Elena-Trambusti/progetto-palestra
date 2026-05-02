@@ -83,6 +83,8 @@ const NOTIFY_WEBHOOK = (process.env.NOTIFY_WEBHOOK_URL || "").trim();
 const INGEST_SECRET = (process.env.INGEST_SECRET || "").trim();
 const DISABLE_AUTO_TICK =
   String(process.env.DISABLE_AUTO_TICK || "").toLowerCase() === "true";
+const TELEGRAM_AUTO_MONITOR =
+  String(process.env.TELEGRAM_AUTO_MONITOR || "").toLowerCase() === "true";
 const NODE_ENV = String(process.env.NODE_ENV || "development").toLowerCase();
 const IS_PROD = NODE_ENV === "production";
 const TRUST_PROXY = String(process.env.TRUST_PROXY || "").toLowerCase() === "true";
@@ -2334,9 +2336,9 @@ async function startHttpServer() {
       console.log("  Simulazione random DISATTIVATA (DISABLE_AUTO_TICK=true) — solo ingest/manuale");
     }
 
-    // Avvia monitoraggi Telegram Bot Intelligente
-    if (isTelegramConfigured()) {
-      console.log("  🤖 Telegram Bot Intelligente attivo:");
+    // Avvia monitoraggi Telegram Bot Intelligente (solo se esplicitamente abilitato)
+    if (isTelegramConfigured() && TELEGRAM_AUTO_MONITOR) {
+      console.log("  🤖 Telegram Bot Intelligente attivo (monitoraggio auto abilitato):");
 
       // Monitoraggio batterie
       const batteryMonitor = startBatteryMonitoring(() => store);
@@ -2355,6 +2357,8 @@ async function startHttpServer() {
         batteryMonitor.stop();
         networkMonitor.stop();
       });
+    } else if (isTelegramConfigured()) {
+      console.log("  🤖 Telegram Bot: configurato ma monitoraggio DISATTIVATO (impostare TELEGRAM_AUTO_MONITOR=true per abilitare)");
     } else {
       console.log("  🤖 Telegram Bot: non configurato (impostare TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID)");
     }
