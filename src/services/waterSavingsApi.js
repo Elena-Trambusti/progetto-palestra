@@ -3,31 +3,27 @@
  * Recupera e processa dati per dashboard risparmio acqua
  */
 
-const API_BASE = process.env.REACT_APP_API_BASE || '/api';
+import { sensorFetch } from "./sensorApi";
 
 /**
  * Recupera dati completi risparmio idrico
  * @returns {Promise<Object>} Dati risparmio con metriche aggregate
  */
 export async function fetchWaterSavings() {
-  try {
-    const response = await fetch(`${API_BASE}/water/savings`);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  const response = await sensorFetch("/api/water/savings", { method: "GET" });
+
+  if (!response.ok) {
+    if ([401, 403, 404, 503].includes(response.status)) {
+      return { unavailable: true, status: response.status };
     }
-    
-    const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error(data.message || 'Errore recupero dati risparmio');
-    }
-    
-    return data.data;
-  } catch (error) {
-    console.error('[waterSavingsApi] Errore fetchWaterSavings:', error);
-    throw error;
+    throw new Error(`HTTP ${response.status}`);
   }
+
+  const data = await response.json();
+  if (!data?.success) {
+    return { unavailable: true, status: 204 };
+  }
+  return data.data;
 }
 
 /**

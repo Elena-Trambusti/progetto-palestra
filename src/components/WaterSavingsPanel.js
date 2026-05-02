@@ -25,16 +25,22 @@ export default function WaterSavingsPanel() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
         setError(null);
+        setUnavailable(false);
         const savingsData = await fetchWaterSavings();
+        if (savingsData?.unavailable) {
+          setData(null);
+          setUnavailable(true);
+          return;
+        }
         setData(savingsData);
       } catch (err) {
-        console.error('WaterSavingsPanel: Errore caricamento dati:', err);
         setError(err.message || 'Errore caricamento dati risparmio');
       } finally {
         setLoading(false);
@@ -71,6 +77,7 @@ export default function WaterSavingsPanel() {
   }
 
   if (!data) {
+    if (unavailable) return null;
     return null;
   }
 

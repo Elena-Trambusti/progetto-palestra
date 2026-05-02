@@ -236,7 +236,6 @@
   .dashboard-grid--no-sensors .area-rightcol {
     display: none;
   }
-}
 
   .dashboard-grid--floorplan {
     grid-template-rows:
@@ -293,6 +292,7 @@
   .dashboard-grid--node .area-node {
     min-height: 640px;
   }
+}
 
 .area-header {
   grid-area: header;

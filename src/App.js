@@ -172,7 +172,9 @@ export default function App() {
             ? " dashboard-grid--floorplan"
             : ""
         }${
-          mainTab === "dashboard" ? " dashboard-grid--no-sensors" : ""
+          mainTab === "dashboard" && postgresNoSensors
+            ? " dashboard-grid--no-sensors"
+            : ""
         }`}
       >
         <div className="area-header">
