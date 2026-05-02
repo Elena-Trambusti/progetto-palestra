@@ -66,11 +66,12 @@ export default function WaterSavingsPanel() {
   }
 
   if (error) {
-    // Per errori di autenticazione o API non disponibile, nascondi il pannello
+    // Per errori di autenticazione, API non disponibile o errore di connessione, nascondi il pannello
     const errorCode = String(error).toLowerCase();
     if (errorCode.includes('401') || errorCode.includes('403') || 
         errorCode.includes('404') || errorCode.includes('503') ||
-        errorCode.includes('unauthorized') || errorCode.includes('forbidden')) {
+        errorCode.includes('unauthorized') || errorCode.includes('forbidden') ||
+        errorCode.includes('connessione') || errorCode.includes('connection')) {
       return null;
     }
     return (
