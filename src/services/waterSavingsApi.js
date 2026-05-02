@@ -13,10 +13,11 @@ export async function fetchWaterSavings() {
   const response = await sensorFetch("/api/water/savings", { method: "GET" });
 
   if (!response.ok) {
-    if ([401, 403, 404, 503].includes(response.status)) {
-      return { unavailable: true, status: response.status };
+    const status = response.status || 0;
+    if ([401, 403, 404, 503].includes(status)) {
+      return { unavailable: true, status };
     }
-    throw new Error(`HTTP ${response.status}`);
+    throw new Error(status ? `HTTP ${status}` : 'Errore di connessione');
   }
 
   const data = await response.json();
