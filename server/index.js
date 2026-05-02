@@ -1164,6 +1164,7 @@ function protectDataApis(req, res, next) {
   if (req.path.startsWith("/api/auth")) return next();
   if (req.path.startsWith("/api/ingest")) return next();
   if (req.path.startsWith("/api/admin")) return next();
+  if (req.path.startsWith("/api/water")) return next(); // API water pubbliche
   return apiGate(req, res, next);
 }
 
