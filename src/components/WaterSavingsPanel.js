@@ -66,6 +66,13 @@ export default function WaterSavingsPanel() {
   }
 
   if (error) {
+    // Per errori di autenticazione o API non disponibile, nascondi il pannello
+    const errorCode = String(error).toLowerCase();
+    if (errorCode.includes('401') || errorCode.includes('403') || 
+        errorCode.includes('404') || errorCode.includes('503') ||
+        errorCode.includes('unauthorized') || errorCode.includes('forbidden')) {
+      return null;
+    }
     return (
       <section className="water-savings glass-panel animate-in animate-in-delay-2">
         <div className="water-savings__error">
