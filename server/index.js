@@ -53,8 +53,21 @@ const { startBatteryMonitoring } = require("./lib/batteryAlerts");
 const { startNetworkMonitoring } = require("./lib/networkAlerts");
 const { isTelegramConfigured } = require("./lib/telegram");
 
-const DATABASE_URL = (process.env.DATABASE_URL || "").trim();
+const DATABASE_URL = (
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL ||
+  process.env.PG_URL ||
+  process.env.DB_URL ||
+  ""
+).trim();
+
+// Se trovata in variabile alternativa, la imposta come DATABASE_URL per postgresStore
+if (DATABASE_URL && !process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = DATABASE_URL;
+}
+
 const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
+console.log(`[startup] DATABASE_URL: ${DATABASE_URL ? "✓ configurata (" + DATABASE_URL.replace(/:([^:@]+)@/, ":***@") + ")" : "✗ NON TROVATA - PostgreSQL disabilitato"}`);
 
 const PORT = Number(process.env.PORT) || 4000;
 const API_KEY = (process.env.API_KEY || "").trim();
