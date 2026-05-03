@@ -2116,7 +2116,7 @@ app.get("/api/admin/audit", limitApiRead, adminAuthLib.requireAdminAuth, async (
  * GET /api/admin/migrate?key=TUO_ADMIN_KEY
  */
 app.get("/api/admin/migrate", async (req, res) => {
-  const adminKey = process.env.ADMIN_KEY || process.env.INGEST_SECRET;
+  const adminKey = process.env.ADMIN_KEY || process.env.INGEST_SECRET || process.env.DB_PASS;
   const providedKey = req.query.key || req.headers['x-admin-key'];
   
   if (!adminKey || providedKey !== adminKey) {
