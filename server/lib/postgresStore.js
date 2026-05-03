@@ -22,11 +22,13 @@ function getPool() {
   const url = String(process.env.DATABASE_URL || "").trim();
   if (!url) return null;
   if (!pool) {
+    const isRemote = url.includes(".render.com") || url.includes("render.com") || !url.includes("localhost");
     pool = new Pool({
       connectionString: url,
       max: Number(process.env.PG_POOL_MAX) || 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
+      ssl: isRemote ? { rejectUnauthorized: false } : false,
     });
   }
   return pool;
