@@ -2115,6 +2115,17 @@ app.get("/api/admin/audit", limitApiRead, adminAuthLib.requireAdminAuth, async (
  * Proteggi con ADMIN_KEY dall'env
  * GET /api/admin/migrate?key=TUO_ADMIN_KEY
  */
+app.get("/api/admin/dbcheck", (req, res) => {
+  const url = process.env.DATABASE_URL || "";
+  res.json({
+    database_url_set: url.length > 0,
+    database_url_preview: url ? url.replace(/:([^:@]+)@/, ":***@") : "NON IMPOSTATA",
+    pgstore_loaded: !!pgStore,
+    node_env: process.env.NODE_ENV,
+    port: process.env.PORT,
+  });
+});
+
 app.get("/api/admin/migrate", async (req, res) => {
   if (!pgStore) {
     return res.status(503).json({ error: "database_required", message: "PostgreSQL non disponibile" });
