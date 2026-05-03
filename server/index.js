@@ -2153,29 +2153,29 @@ app.get("/api/admin/audit", limitApiRead, adminAuthLib.requireAdminAuth, async (
  * Proteggi con ADMIN_KEY dall'env
  * GET /api/admin/migrate?key=TUO_ADMIN_KEY
  */
-app.get("/api/admin/dbcheck", (req, res) => {
+function requireOpsKey(req, res, next) {
+  const configuredKey = String(process.env.ADMIN_KEY || process.env.INGEST_SECRET || "").trim();
+  if (!configuredKey) {
+    return res.status(503).json({ error: "admin_key_not_configured" });
+  }
+  const provided = String(req.get("x-admin-key") || req.query.key || "").trim();
+  if (provided !== configuredKey) {
+    return res.status(403).json({ error: "unauthorized" });
+  }
+  return next();
+}
+
+app.get("/api/admin/dbcheck", requireOpsKey, (req, res) => {
   const resolvedUrl = resolveDatabaseUrl();
   res.json({
     database_url_set: resolvedUrl.length > 0,
-    database_url_preview: maskDbUrl(resolvedUrl),
     pgstore_loaded: !!pgStore,
-    db_env_presence: {
-      DATABASE_URL: Boolean(String(process.env.DATABASE_URL || "").trim()),
-      DATABASE_INTERNAL_URL: Boolean(String(process.env.DATABASE_INTERNAL_URL || "").trim()),
-      POSTGRES_URL: Boolean(String(process.env.POSTGRES_URL || "").trim()),
-      PG_URL: Boolean(String(process.env.PG_URL || "").trim()),
-      DB_URL: Boolean(String(process.env.DB_URL || "").trim()),
-      DB_HOST: Boolean(String(process.env.DB_HOST || "").trim()),
-      DB_NAME: Boolean(String(process.env.DB_NAME || "").trim()),
-      DB_USER: Boolean(String(process.env.DB_USER || "").trim()),
-      DB_PASS: Boolean(String(process.env.DB_PASS || "").trim()),
-    },
+    has_database_url: Boolean(String(process.env.DATABASE_URL || "").trim()),
     node_env: process.env.NODE_ENV,
-    port: process.env.PORT,
   });
 });
 
-app.get("/api/admin/migrate", async (req, res) => {
+app.get("/api/admin/migrate", requireOpsKey, async (req, res) => {
   try {
     const fs = require('fs');
     const path = require('path');
