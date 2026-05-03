@@ -2187,18 +2187,59 @@ app.get("/api/admin/migrate", async (req, res) => {
     
     const sql = fs.readFileSync(sqlPath, 'utf8');
 
-    if (pgStore) {
-      await pgStore.withClient(async (client) => {
-        await client.query(sql);
-      });
-    } else {
+    const runCompatibilityMigration = async (client) => {
+      const executed = [];
+      const fallbackStatements = [
+        `ALTER TABLE IF EXISTS measurements ADD COLUMN IF NOT EXISTS battery_level DECIMAL(5,2)`,
+        `ALTER TABLE IF EXISTS measurements ADD COLUMN IF NOT EXISTS rssi INTEGER`,
+        `ALTER TABLE IF EXISTS measurements ADD COLUMN IF NOT EXISTS sensor_type VARCHAR(50)`,
+        `CREATE INDEX IF NOT EXISTS idx_measurements_battery ON measurements (battery_level) WHERE battery_level IS NOT NULL`,
+        `CREATE INDEX IF NOT EXISTS idx_measurements_rssi ON measurements (rssi) WHERE rssi IS NOT NULL`,
+        `CREATE INDEX IF NOT EXISTS idx_measurements_telemetry ON measurements (sensor_id, battery_level, rssi, timestamp DESC)`,
+        `CREATE TABLE IF NOT EXISTS sensor_maintenance_status (
+          id SERIAL PRIMARY KEY,
+          sensor_id INTEGER NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+          battery_alert_sent BOOLEAN DEFAULT FALSE,
+          battery_alert_sent_at TIMESTAMPTZ,
+          signal_alert_sent BOOLEAN DEFAULT FALSE,
+          signal_alert_sent_at TIMESTAMPTZ,
+          maintenance_count INTEGER DEFAULT 0,
+          last_check_at TIMESTAMPTZ DEFAULT NOW(),
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(sensor_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_maintenance_sensor ON sensor_maintenance_status (sensor_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_maintenance_alerts ON sensor_maintenance_status (battery_alert_sent, signal_alert_sent)`,
+      ];
+
+      try {
+        await client.query(`ALTER TABLE measurements RENAME COLUMN battery TO battery_level`);
+        executed.push("rename_battery_column");
+      } catch (_renameErr) {
+        // compatibilità: colonna legacy potrebbe non esistere
+      }
+
+      try {
+        await client.query(`ALTER TABLE measurements ALTER COLUMN rssi TYPE INTEGER USING rssi::INTEGER`);
+        executed.push("cast_rssi_integer");
+      } catch (_castErr) {
+        // compatibilità: rssi può non esistere ancora o già essere INTEGER
+      }
+
+      for (const stmt of fallbackStatements) {
+        await client.query(stmt);
+        executed.push(stmt.split("\n")[0].slice(0, 80));
+      }
+      return executed;
+    };
+
+    const runWithClient = async (fn) => {
+      if (pgStore) {
+        return pgStore.withClient(fn);
+      }
       const resolvedUrl = resolveDatabaseUrl();
       if (!resolvedUrl) {
-        return res.status(503).json({
-          error: "database_required",
-          message: "PostgreSQL non disponibile",
-          hint: "DATABASE_URL non presente nel runtime del Web Service Render",
-        });
+        return null;
       }
       const isRemote = resolvedUrl.includes(".render.com") || !resolvedUrl.includes("localhost");
       const tempPool = new Pool({
@@ -2208,13 +2249,36 @@ app.get("/api/admin/migrate", async (req, res) => {
       try {
         const c = await tempPool.connect();
         try {
-          await c.query(sql);
+          return await fn(c);
         } finally {
           c.release();
         }
       } finally {
         await tempPool.end();
       }
+    };
+
+    if (!pgStore && !resolveDatabaseUrl()) {
+      return res.status(503).json({
+        error: "database_required",
+        message: "PostgreSQL non disponibile",
+        hint: "DATABASE_URL non presente nel runtime del Web Service Render",
+      });
+    }
+
+    let executionMode = "script_003";
+    let fallbackInfo = null;
+    try {
+      await runWithClient(async (client) => {
+        await client.query(sql);
+      });
+    } catch (scriptErr) {
+      executionMode = "fallback_compatibility";
+      const executed = await runWithClient(async (client) => runCompatibilityMigration(client));
+      fallbackInfo = {
+        original_error: scriptErr?.message || String(scriptErr),
+        executed_steps: executed || [],
+      };
     }
     
     logEvent("info", "migration_executed", { migration: "003_telemetry_schema" });
@@ -2222,6 +2286,7 @@ app.get("/api/admin/migrate", async (req, res) => {
     res.json({
       ok: true,
       migration: "003_telemetry_schema",
+      mode: executionMode,
       message: "Migrazione telemetria completata",
       executed_at: new Date().toISOString(),
       changes: [
@@ -2230,7 +2295,8 @@ app.get("/api/admin/migrate", async (req, res) => {
         "Aggiunta colonna sensor_type",
         "Creata tabella sensor_maintenance_status",
         "Creati indici ottimizzati"
-      ]
+      ],
+      fallback: fallbackInfo,
     });
   } catch (err) {
     logEvent("error", "migration_failed", { error: err?.message || String(err) });
