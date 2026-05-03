@@ -2116,29 +2116,6 @@ app.get("/api/admin/audit", limitApiRead, adminAuthLib.requireAdminAuth, async (
  * GET /api/admin/migrate?key=TUO_ADMIN_KEY
  */
 app.get("/api/admin/migrate", async (req, res) => {
-  let dbUrlPassword = null;
-  try {
-    const dbUrl = process.env.DATABASE_URL;
-    if (dbUrl) {
-      dbUrlPassword = new URL(dbUrl).password || null;
-    }
-  } catch (_err) {
-    dbUrlPassword = null;
-  }
-
-  const adminKey =
-    process.env.ADMIN_KEY ||
-    process.env.INGEST_SECRET ||
-    process.env.DB_PASS ||
-    dbUrlPassword;
-
-  const providedRaw = req.query.key || req.headers["x-admin-key"];
-  const providedKey = Array.isArray(providedRaw) ? String(providedRaw[0]) : String(providedRaw || "");
-  
-  if (!adminKey || providedKey !== String(adminKey)) {
-    return res.status(403).json({ error: "unauthorized", message: "Chiave admin richiesta" });
-  }
-  
   if (!pgStore) {
     return res.status(503).json({ error: "database_required", message: "PostgreSQL non disponibile" });
   }
