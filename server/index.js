@@ -2234,9 +2234,6 @@ app.get("/api/admin/migrate", async (req, res) => {
     };
 
     const runWithClient = async (fn) => {
-      if (pgStore) {
-        return pgStore.withClient(fn);
-      }
       const resolvedUrl = resolveDatabaseUrl();
       if (!resolvedUrl) {
         return null;
@@ -2258,7 +2255,7 @@ app.get("/api/admin/migrate", async (req, res) => {
       }
     };
 
-    if (!pgStore && !resolveDatabaseUrl()) {
+    if (!resolveDatabaseUrl()) {
       return res.status(503).json({
         error: "database_required",
         message: "PostgreSQL non disponibile",
