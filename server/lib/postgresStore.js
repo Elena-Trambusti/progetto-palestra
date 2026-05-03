@@ -400,12 +400,15 @@ async function insertMeasurement({
   rssi,
   snr,
   battery,
+  batteryLevel,
   timestamp,
 }) {
   const tsIsoUtc = measurementTimestampToUtcIso(timestamp);
+  // Supporta sia battery (legacy) che batteryLevel (nuovo schema)
+  const battValue = batteryLevel != null ? batteryLevel : battery;
   return withClient(async (c) => {
     await c.query(
-      `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery, timestamp)
+      `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery_level, timestamp)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz)`,
       [
         sensorId,
@@ -416,7 +419,7 @@ async function insertMeasurement({
         sensorType || null,
         rssi == null ? null : Number(rssi),
         snr == null ? null : Number(snr),
-        battery == null ? null : Number(battery),
+        battValue == null ? null : Number(battValue),
         tsIsoUtc,
       ],
     );

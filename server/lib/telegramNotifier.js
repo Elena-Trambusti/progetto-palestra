@@ -16,6 +16,40 @@ const COOLDOWN_WARNING_MS =
 const lastCriticalSent = new Map();
 /** @type {Map<string, number>} */
 const lastWarningSent = new Map();
+/** @type {Map<string, number>} */
+const lastMaintenanceSent = new Map();
+
+// Tipi di alert manutenzione
+const MAINTENANCE_TYPES = {
+  BATTERY_LOW: 'battery_low',
+  SIGNAL_WEAK: 'signal_weak',
+  SENSOR_OFFLINE: 'sensor_offline',
+  SENSOR_RECOVERED: 'sensor_recovered'
+};
+
+// Icone e titoli per manutenzione
+const MAINTENANCE_STYLES = {
+  [MAINTENANCE_TYPES.BATTERY_LOW]: {
+    icon: '🔋',
+    title: 'Manutenzione: Batteria Scarica',
+    emoji: '⚠️'
+  },
+  [MAINTENANCE_TYPES.SIGNAL_WEAK]: {
+    icon: '📡',
+    title: 'Manutenzione: Segnale Debole',
+    emoji: '📶'
+  },
+  [MAINTENANCE_TYPES.SENSOR_OFFLINE]: {
+    icon: '🔧',
+    title: 'Manutenzione: Sensore Offline',
+    emoji: '❌'
+  },
+  [MAINTENANCE_TYPES.SENSOR_RECOVERED]: {
+    icon: '✅',
+    title: 'Manutenzione: Sensore Ripristinato',
+    emoji: '✅'
+  }
+};
 
 /**
  * Verifica se possiamo inviare (rispetta cooldown)
@@ -394,6 +428,84 @@ async function notifyInfo({ title, message, nodeId, metrics }) {
   return result;
 }
 
+/**
+ * Invia alert manutenzione (Sesto Senso Manutenzione)
+ * Formattazione diversa dagli allarmi critici - più soft ma evidente
+ * @param {Object} params
+ * @param {string} params.type - tipo da MAINTENANCE_TYPES
+ * @param {string} params.sensorId - devEUI del sensore
+ * @param {string} params.sensorName - nome leggibile
+ * @param {string} params.location - posizione/zona
+ * @param {number} params.value - valore misurato
+ * @param {string} params.unit - unità di misura (% o V o dBm)
+ * @param {number} params.threshold - soglia che ha triggerato l'alert
+ * @param {Date} params.timestamp - quando è stato rilevato
+ * @returns {Promise<{ok: boolean}>}
+ */
+async function sendMaintenanceAlert({
+  type,
+  sensorId,
+  sensorName,
+  location,
+  value,
+  unit,
+  threshold,
+  timestamp
+}) {
+  if (!isTelegramConfigured()) return { ok: false, skipped: true };
+
+  const style = MAINTENANCE_STYLES[type] || MAINTENANCE_STYLES[MAINTENANCE_TYPES.BATTERY_LOW];
+  
+  // Cooldown specifico per manutenzione (30 min - meno urgente di critici)
+  const key = `maintenance:${sensorId}:${type}`;
+  if (!canSend(key, 30 * 60 * 1000, lastMaintenanceSent)) {
+    console.log(`[telegramNotifier] Manutenzione ${type} per ${sensorId} - cooldown attivo`);
+    return { ok: false, cooldown: true };
+  }
+
+  // Costruisci messaggio con emoji prominenti
+  const header = `${style.icon} <b>SESTO SENSO MANUTENZIONE</b> ${style.icon}`;
+  const separator = '━'.repeat(30);
+  
+  const valueText = value != null 
+    ? `📊 <b>Valore attuale:</b> ${value}${unit}\n🎯 <b>Soglia:</b> ${threshold}${unit}` 
+    : '';
+  
+  const actionText = type === MAINTENANCE_TYPES.BATTERY_LOW
+    ? '🔌 <b>Azione:</b> Sostituire la batteria al più presto'
+    : type === MAINTENANCE_TYPES.SIGNAL_WEAK
+    ? '📍 <b>Azione:</b> Verificare posizione o aggiungere gateway'
+    : type === MAINTENANCE_TYPES.SENSOR_OFFLINE
+    ? '🔧 <b>Azione:</b> Verificare alimentazione e connettività'
+    : '✅ Il sensore è tornato operativo';
+
+  const text = [
+    header,
+    separator,
+    "",
+    `${style.emoji} <b>${style.title}</b>`,
+    "",
+    `📡 <b>Sensore:</b> ${sensorName || sensorId}`,
+    `📍 <b>Posizione:</b> ${location || 'Sconosciuta'}`,
+    "",
+    valueText,
+    "",
+    actionText,
+    "",
+    separator,
+    `🕐 ${formatItalianTime()} (ITA)`,
+    "",
+    "<i>💡 Questo è un messaggio di manutenzione preventiva.</i>",
+    "<i>Gli allarmi critici hanno icona 🚨 e priorità maggiore.</i>"
+  ].filter(Boolean).join("\n");
+
+  const result = await sendTelegramMessage(text);
+  if (result.ok) {
+    console.log(`[telegramNotifier] Manutenzione inviata: ${sensorId} - ${type}`);
+  }
+  return result;
+}
+
 module.exports = {
   notifyCriticalAlarm,
   notifyWarning,
@@ -402,10 +514,13 @@ module.exports = {
   notifyNodeOffline,
   notifyWeakSignal,
   notifyRecovery,
+  sendMaintenanceAlert,
+  MAINTENANCE_TYPES,
   formatItalianTime,
   // Esportiamo anche per testing/debug
   _resetCooldowns: () => {
     lastCriticalSent.clear();
     lastWarningSent.clear();
+    lastMaintenanceSent.clear();
   },
 };

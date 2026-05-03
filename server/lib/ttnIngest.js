@@ -12,6 +12,7 @@ const {
 const { maybeNotifyThresholdAlarm } = require("./telegram");
 const { analyzeWaterData } = require("./waterAnalytics");
 const { analyzeAirData } = require("./airAnalytics");
+const { analyzeMaintenanceTelemetry } = require("./maintenanceAnalytics");
 
 /**
  * Mappatura dinamica sensori - LEGGE DA ENV oppure usa defaults
@@ -475,14 +476,15 @@ async function ingestTtnWebhook(body) {
   // Estrai dati specifici per tipo di sensore
   const sensorInfo = extractSensorData(devEui, decoded);
   
-  // Prepara campi specifici per insertMeasurement
+  // Prepara campi specifici per insertMeasurement (schema telemetria universale)
   const measurementData = {
     sensorId: sensor.id,
     value: Number(value),
-    sensorType: sensorInfo.sensorType,
+    sensorType: sensorInfo.sensorType || sensor.type,
     rssi: radio.rssi,
     snr: radio.snr,
     battery,
+    batteryLevel: battery, // Nuovo schema telemetria
     timestamp: tsUtc,
   };
   
@@ -517,6 +519,19 @@ async function ingestTtnWebhook(body) {
       console.warn("[airAnalytics]", err && err.message ? err.message : err);
     });
   }
+  
+  // "Sesto Senso Manutenzione" - Analisi telemetria batteria e segnale
+  void analyzeMaintenanceTelemetry({
+    sensorId: sensor.id,
+    devEui,
+    sensorName: sensor.name,
+    location: sensor.location,
+    batteryLevel: battery,
+    rssi: radio.rssi,
+    timestamp: tsUtc
+  }).catch((err) => {
+    console.warn("[maintenance]", err && err.message ? err.message : err);
+  });
 
   return {
     ok: true,
