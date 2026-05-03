@@ -6,6 +6,14 @@
  * etichette leggibili per grafici JSON usano ISO UTC (`iso` / `label`) e vanno formattate in locale sul client.
  */
 const { Pool } = require("pg");
+const NodeCache = require("node-cache");
+
+/** Cache per query frequenti (sensori, misure recenti) */
+const queryCache = new NodeCache({
+  stdTTL: 60, // 60 secondi default TTL
+  checkperiod: 120, // cleanup ogni 2 minuti
+  maxKeys: 100,
+});
 
 /** Soglia "ritardo uplink" prima dello stato stale (ms). */
 const UPLINK_STALE_MS = 3 * 60 * 1000;
@@ -186,7 +194,11 @@ async function listDistinctLocations() {
 }
 
 async function listSensorsAll() {
-  return withClient(async (c) => {
+  const cacheKey = "sensors:all";
+  const cached = queryCache.get(cacheKey);
+  if (cached) return cached;
+
+  const result = await withClient(async (c) => {
     const r = await c.query(
       `SELECT id, dev_eui AS "devEui", name, location, type,
  min_threshold AS "minThreshold", max_threshold AS "maxThreshold",
@@ -195,6 +207,9 @@ async function listSensorsAll() {
     );
     return r.rows;
   });
+
+  queryCache.set(cacheKey, result, 60); // cache 60 secondi
+  return result;
 }
 
 /** Catalogo sensori di una zona (location) per report PDF e confronti soglie. */
@@ -354,13 +369,19 @@ async function findSensorByDevEui(devEui) {
 }
 
 /**
- * Ultima misura per ogni sensore (finestra LATERAL efficiente su Postgres).
- */
-/**
  * Ultima misura per ogni sensore. Se `client` è fornito, riusa la connessione (stessa transazione snapshot).
+ * Con caching quando non in transazione (client = null).
  */
 async function fetchLatestMeasurements(sensorIds, client = null) {
   if (!sensorIds.length) return new Map();
+  
+  // Usa cache solo se non in transazione
+  if (!client) {
+    const cacheKey = `measurements:latest:${sensorIds.sort().join(",")}`;
+    const cached = queryCache.get(cacheKey);
+    if (cached) return new Map(cached);
+  }
+
   const exec = async (c) => {
     const r = await c.query(
       `SELECT DISTINCT ON (sensor_id)
@@ -381,8 +402,16 @@ async function fetchLatestMeasurements(sensorIds, client = null) {
     }
     return m;
   };
-  if (client) return exec(client);
-  return withClient(exec);
+
+  const result = client ? await exec(client) : await withClient(exec);
+
+  // Salva in cache se non in transazione
+  if (!client) {
+    const cacheKey = `measurements:latest:${sensorIds.sort().join(",")}`;
+    queryCache.set(cacheKey, Array.from(result.entries()), 30); // cache 30 secondi
+  }
+
+  return result;
 }
 
 /** Normalizza l'istante di misura in stringa ISO UTC per la colonna `timestamptz`. */
@@ -408,7 +437,7 @@ async function insertMeasurement({
   const tsIsoUtc = measurementTimestampToUtcIso(timestamp);
   // Supporta sia battery (legacy) che batteryLevel (nuovo schema)
   const battValue = batteryLevel != null ? batteryLevel : battery;
-  return withClient(async (c) => {
+  const result = await withClient(async (c) => {
     await c.query(
       `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery_level, timestamp)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz)`,
@@ -426,6 +455,18 @@ async function insertMeasurement({
       ],
     );
   });
+
+  // Invalida cache misure per questo sensore
+  const keys = queryCache.keys();
+  keys.forEach((key) => {
+    if (key.startsWith("measurements:latest:")) {
+      if (key.includes(sensorId)) {
+        queryCache.del(key);
+      }
+    }
+  });
+
+  return result;
 }
 
 async function historySamplesForLocation(location, limit, range) {

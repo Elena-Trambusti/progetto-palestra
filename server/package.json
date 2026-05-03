@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test": "node --test",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "db:setup": "node scripts/setupDatabase.js",
     "db:migrate": "node scripts/setupDatabase.js",
     "db:status": "node -e \"console.log('Stato migration: eseguire npm run db:setup per verificare')\""
@@ -21,7 +23,14 @@
     "express": "^4.21.2",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.2.0",
+    "joi": "^17.13.3",
     "pg": "^8.13.1",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
   }
 }

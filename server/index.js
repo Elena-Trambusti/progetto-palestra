@@ -33,10 +33,7 @@ const {
   findNodeByZone,
   findGateway,
 } = require("./lib/zonesData");
-const {
-  computeWaterEta,
-  detectRapidDrop,
-} = require("./lib/waterInsights");
+const { computeWaterEta, detectRapidDrop } = require("./lib/waterInsights");
 const {
   COOKIE,
   attachAuthRoutes,
@@ -48,6 +45,10 @@ const adminAuthLib = require("./lib/adminAuth");
 const backupManager = require("./lib/backupManager");
 const partitionManager = require("./lib/partitionManager");
 const rbacManager = require("./lib/rbacManager");
+
+// Swagger/OpenAPI documentation
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpecs = require("./swagger");
 
 // Moduli Telegram Bot Intelligente
 const { startBatteryMonitoring } = require("./lib/batteryAlerts");
@@ -62,10 +63,16 @@ function maskDbUrl(url) {
 
 function buildDatabaseUrlFromParts() {
   const user = String(process.env.DB_USER || process.env.PGUSER || "").trim();
-  const pass = String(process.env.DB_PASS || process.env.PGPASSWORD || "").trim();
+  const pass = String(
+    process.env.DB_PASS || process.env.PGPASSWORD || "",
+  ).trim();
   const host = String(process.env.DB_HOST || process.env.PGHOST || "").trim();
-  const port = String(process.env.DB_PORT || process.env.PGPORT || "5432").trim();
-  const name = String(process.env.DB_NAME || process.env.PGDATABASE || "").trim();
+  const port = String(
+    process.env.DB_PORT || process.env.PGPORT || "5432",
+  ).trim();
+  const name = String(
+    process.env.DB_NAME || process.env.PGDATABASE || "",
+  ).trim();
   if (!user || !pass || !host || !name) return "";
   return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}/${name}`;
 }
@@ -92,7 +99,9 @@ if (DATABASE_URL) {
 }
 
 const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
-console.log(`[startup] DATABASE_URL: ${DATABASE_URL ? "✓ configurata (" + maskDbUrl(DATABASE_URL) + ")" : "✗ NON TROVATA - PostgreSQL disabilitato"}`);
+console.log(
+  `[startup] DATABASE_URL: ${DATABASE_URL ? "✓ configurata (" + maskDbUrl(DATABASE_URL) + ")" : "✗ NON TROVATA - PostgreSQL disabilitato"}`,
+);
 
 const PORT = Number(process.env.PORT) || 4000;
 const API_KEY = (process.env.API_KEY || "").trim();
@@ -115,7 +124,7 @@ const REQUIRE_AUTH = (() => {
 })();
 const AUTH_PASSWORD = String(process.env.AUTH_PASSWORD || "").trim();
 const DATA_DIR = path.resolve(
-  process.env.DATA_DIR || path.join(__dirname, "data")
+  process.env.DATA_DIR || path.join(__dirname, "data"),
 );
 const NOTIFY_WEBHOOK = (process.env.NOTIFY_WEBHOOK_URL || "").trim();
 const INGEST_SECRET = (process.env.INGEST_SECRET || "").trim();
@@ -125,27 +134,25 @@ const TELEGRAM_AUTO_MONITOR =
   String(process.env.TELEGRAM_AUTO_MONITOR || "").toLowerCase() === "true";
 const NODE_ENV = String(process.env.NODE_ENV || "development").toLowerCase();
 const IS_PROD = NODE_ENV === "production";
-const TRUST_PROXY = String(process.env.TRUST_PROXY || "").toLowerCase() === "true";
+const TRUST_PROXY =
+  String(process.env.TRUST_PROXY || "").toLowerCase() === "true";
 const AUTH_MIN_PASSWORD_LEN = Number(process.env.AUTH_MIN_PASSWORD_LEN) || 12;
 
 const WATER_ETA_LOOKBACK_MS =
   Number(process.env.WATER_ETA_LOOKBACK_MS) || 45 * 60 * 1000;
 const WATER_RAPID_WINDOW_MS =
   Number(process.env.WATER_RAPID_WINDOW_MS) || 10 * 60 * 1000;
-const WATER_RAPID_DROP_PCT =
-  Number(process.env.WATER_RAPID_DROP_PCT) || 12;
+const WATER_RAPID_DROP_PCT = Number(process.env.WATER_RAPID_DROP_PCT) || 12;
 const OPS_ALERT_CHECK_EVERY_MS =
   Number(process.env.OPS_ALERT_CHECK_EVERY_MS) || 60 * 1000;
 const OPS_ALERT_WINDOW_MS =
   Number(process.env.OPS_ALERT_WINDOW_MS) || 5 * 60 * 1000;
-const OPS_ALERT_5XX_RATE_PCT =
-  Number(process.env.OPS_ALERT_5XX_RATE_PCT) || 1;
+const OPS_ALERT_5XX_RATE_PCT = Number(process.env.OPS_ALERT_5XX_RATE_PCT) || 1;
 const OPS_ALERT_WS_REJECTS_DELTA =
   Number(process.env.OPS_ALERT_WS_REJECTS_DELTA) || 5;
 const OPS_ALERT_INGEST_REJECTS_DELTA =
   Number(process.env.OPS_ALERT_INGEST_REJECTS_DELTA) || 5;
-const OPS_ALERT_MIN_REQUESTS =
-  Number(process.env.OPS_ALERT_MIN_REQUESTS) || 30;
+const OPS_ALERT_MIN_REQUESTS = Number(process.env.OPS_ALERT_MIN_REQUESTS) || 30;
 
 // Backup automatico configurazione
 const BACKUP_AUTO_ENABLED =
@@ -155,15 +162,15 @@ const BACKUP_INTERVAL_MS =
 
 // Partizionamento automatico configurazione
 const PARTITION_AUTO_MAINTENANCE =
-  String(process.env.PARTITION_AUTO_MAINTENANCE || "true").toLowerCase() === "true";
+  String(process.env.PARTITION_AUTO_MAINTENANCE || "true").toLowerCase() ===
+  "true";
 const PARTITION_MAINTENANCE_INTERVAL_MS =
   Number(process.env.PARTITION_MAINTENANCE_INTERVAL_MS) || 24 * 60 * 60 * 1000; // Default: ogni 24 ore
-const PARTITION_MONTHS_KEEP =
-  Number(process.env.PARTITION_MONTHS_KEEP) || 3;
+const PARTITION_MONTHS_KEEP = Number(process.env.PARTITION_MONTHS_KEEP) || 3;
 
 if (REQUIRE_AUTH && !AUTH_PASSWORD) {
   console.error(
-    "[config] REQUIRE_AUTH=true ma AUTH_PASSWORD è vuota. Imposta AUTH_PASSWORD nel file .env del server."
+    "[config] REQUIRE_AUTH=true ma AUTH_PASSWORD è vuota. Imposta AUTH_PASSWORD nel file .env del server.",
   );
   process.exit(1);
 }
@@ -175,7 +182,7 @@ if (IS_PROD) {
   }
   if (!INGEST_SECRET && !API_KEY) {
     console.error(
-      "[config] In produzione serve almeno uno tra INGEST_SECRET o API_KEY (protezione webhook ingest e client TTN)."
+      "[config] In produzione serve almeno uno tra INGEST_SECRET o API_KEY (protezione webhook ingest e client TTN).",
     );
     process.exit(1);
   }
@@ -185,7 +192,7 @@ if (IS_PROD) {
   }
   if (AUTH_PASSWORD.length < AUTH_MIN_PASSWORD_LEN) {
     console.error(
-      `[config] AUTH_PASSWORD troppo corta: minimo ${AUTH_MIN_PASSWORD_LEN} caratteri in production.`
+      `[config] AUTH_PASSWORD troppo corta: minimo ${AUTH_MIN_PASSWORD_LEN} caratteri in production.`,
     );
     process.exit(1);
   }
@@ -254,13 +261,14 @@ function createInitialState(zoneId) {
   };
 }
 
-const store = Object.fromEntries(ZONES.map((z) => [z.id, createInitialState(z.id)]));
+const store = Object.fromEntries(
+  ZONES.map((z) => [z.id, createInitialState(z.id)]),
+);
 
 const SENSORS = NODES.map((node) => node.label);
 
 const EVENT_BUFFER_MAX =
-  Number(process.env.NETWORK_EVENT_BUFFER_MAX) ||
-  (IS_RENDER ? 120 : 250);
+  Number(process.env.NETWORK_EVENT_BUFFER_MAX) || (IS_RENDER ? 120 : 250);
 /** @type {Array<{ iso: string, t: number, type: string, severity: string, nodeId?: string, nodeLabel?: string, zoneId?: string, zoneName?: string, message: string, data?: any }>} */
 const networkEvents = networkEventsStore.loadRecent(DATA_DIR, EVENT_BUFFER_MAX);
 
@@ -364,7 +372,10 @@ function networkStatusSummary() {
   const nodes = NODES.map((node) => {
     const state = store[node.zoneId];
     const gateway = findGateway(node.gatewayId);
-    const status = normalizeNetworkStatus(state?.uplinkAt, state?.nodeStatus || "online");
+    const status = normalizeNetworkStatus(
+      state?.uplinkAt,
+      state?.nodeStatus || "online",
+    );
     return {
       id: node.id,
       label: node.label,
@@ -409,7 +420,10 @@ function networkStatusSummary() {
 function normalizeReadingPayload(body) {
   const zoneIdRaw = String(body?.zoneId || "").trim();
   const nodeIdRaw = String(body?.nodeId || "").trim();
-  const zone = (zoneIdRaw && findZone(zoneIdRaw)) || (nodeIdRaw && findZone(findNode(nodeIdRaw)?.zoneId)) || null;
+  const zone =
+    (zoneIdRaw && findZone(zoneIdRaw)) ||
+    (nodeIdRaw && findZone(findNode(nodeIdRaw)?.zoneId)) ||
+    null;
   const node =
     (nodeIdRaw && findNode(nodeIdRaw)) ||
     (zone?.primaryNodeId ? findNode(zone.primaryNodeId) : null) ||
@@ -422,7 +436,8 @@ function normalizeReadingPayload(body) {
     };
   }
 
-  const sensors = body?.sensors && typeof body.sensors === "object" ? body.sensors : {};
+  const sensors =
+    body?.sensors && typeof body.sensors === "object" ? body.sensors : {};
   const tempC = body?.temperatureC ?? body?.tempC ?? sensors.temperatureC;
   if (!Number.isFinite(Number(tempC))) {
     return { error: "temperatureC_required" };
@@ -442,14 +457,23 @@ function normalizeReadingPayload(body) {
     sensors.humidityPct ??
     sensors.rh ??
     null;
-  const co2Ppm = body?.co2Ppm ?? body?.co2 ?? sensors.co2Ppm ?? sensors.co2 ?? null;
-  const vocIndex = body?.vocIndex ?? body?.voc ?? body?.iaq ?? sensors.vocIndex ?? sensors.voc ?? sensors.iaq ?? null;
+  const co2Ppm =
+    body?.co2Ppm ?? body?.co2 ?? sensors.co2Ppm ?? sensors.co2 ?? null;
+  const vocIndex =
+    body?.vocIndex ??
+    body?.voc ??
+    body?.iaq ??
+    sensors.vocIndex ??
+    sensors.voc ??
+    sensors.iaq ??
+    null;
   const lightLux = body?.lightLux ?? sensors.lightLux ?? null;
   const flowLmin = body?.flowLmin ?? sensors.flowLmin ?? null;
   const batteryPercent = body?.batteryPercent ?? body?.battery ?? null;
   const rssi = body?.rssi ?? null;
   const snr = body?.snr ?? null;
-  const gatewayId = String(body?.gatewayId || node.gatewayId || "").trim() || node.gatewayId;
+  const gatewayId =
+    String(body?.gatewayId || node.gatewayId || "").trim() || node.gatewayId;
   const timestamp = String(body?.timestamp || new Date().toISOString()).trim();
   const source = String(body?.source || "lora-gateway").slice(0, 64);
 
@@ -463,7 +487,8 @@ function normalizeReadingPayload(body) {
     source,
     tempC: Number(tempC),
     waterPct: waterPct == null ? null : clampFinite(waterPct, 0, 100, null),
-    humidityPct: humidityPct == null ? null : clampFinite(humidityPct, 0, 100, null),
+    humidityPct:
+      humidityPct == null ? null : clampFinite(humidityPct, 0, 100, null),
     co2Ppm: co2Ppm == null ? null : clampFinite(co2Ppm, 0, 5000, null),
     vocIndex: vocIndex == null ? null : clampFinite(vocIndex, 0, 2000, null),
     lightLux: lightLux == null ? null : clampFinite(lightLux, 0, 20000, null),
@@ -504,48 +529,55 @@ function tickZone(zoneId) {
 
   const nextTemp = Math.min(
     40,
-    Math.max(21, (st.lastTemp ?? 28) + randomBetween(-1.1, 1.1))
+    Math.max(21, (st.lastTemp ?? 28) + randomBetween(-1.1, 1.1)),
   );
   const nextWater = Math.min(
     100,
-    Math.max(4, (st.water ?? 70) + randomBetween(-3.5, 2.8))
+    Math.max(4, (st.water ?? 70) + randomBetween(-3.5, 2.8)),
   );
   const nextHum = Math.min(
     78,
-    Math.max(26, (st.humidityPct ?? 50) + randomBetween(-2.2, 2))
+    Math.max(26, (st.humidityPct ?? 50) + randomBetween(-2.2, 2)),
   );
   const nextCo2 = Math.min(
     1550,
-    Math.max(380, (st.co2Ppm ?? 650) + randomBetween(-45, 55))
+    Math.max(380, (st.co2Ppm ?? 650) + randomBetween(-45, 55)),
   );
   const nextVoc = Math.min(
     420,
-    Math.max(35, (st.vocIndex ?? 120) + randomBetween(-18, 22))
+    Math.max(35, (st.vocIndex ?? 120) + randomBetween(-18, 22)),
   );
   const nextLight = Math.min(
     1600,
-    Math.max(20, (st.lightLux ?? 320) + randomBetween(-60, 85))
+    Math.max(20, (st.lightLux ?? 320) + randomBetween(-60, 85)),
   );
   const nextFlow = Math.min(
     26,
-    Math.max(0, (st.flowLmin ?? 8) + randomBetween(-1.6, 1.8))
+    Math.max(0, (st.flowLmin ?? 8) + randomBetween(-1.6, 1.8)),
   );
   const nextBattery = Math.max(
     12,
-    Math.min(100, (st.batteryPercent ?? 84) + randomBetween(-0.22, 0.05))
+    Math.min(100, (st.batteryPercent ?? 84) + randomBetween(-0.22, 0.05)),
   );
   const nextRssi = Math.min(
     -92,
-    Math.max(-126, (st.rssi ?? -110) + randomBetween(-2.3, 1.7))
+    Math.max(-126, (st.rssi ?? -110) + randomBetween(-2.3, 1.7)),
   );
   const nextSnr = Math.min(
     12,
-    Math.max(-3, (st.snr ?? 5.4) + randomBetween(-0.8, 0.65))
+    Math.max(-3, (st.snr ?? 5.4) + randomBetween(-0.8, 0.65)),
   );
   const packetRoll = Math.random();
   const nextNodeStatus =
-    z.kind === "gateway" ? "gateway" : packetRoll < 0.04 ? "offline" : packetRoll < 0.14 ? "stale" : "online";
-  const uplinkLagSec = nextNodeStatus === "offline" ? 380 : nextNodeStatus === "stale" ? 110 : 4;
+    z.kind === "gateway"
+      ? "gateway"
+      : packetRoll < 0.04
+        ? "offline"
+        : packetRoll < 0.14
+          ? "stale"
+          : "online";
+  const uplinkLagSec =
+    nextNodeStatus === "offline" ? 380 : nextNodeStatus === "stale" ? 110 : 4;
 
   const labels = [...st.labels, t];
   const values = [...st.values, nextTemp];
@@ -735,7 +767,7 @@ function applyManualReading(zoneId, payload) {
   const prevStatus = st.nodeStatus;
   st.nodeStatus = normalizeNetworkStatus(
     st.uplinkAt,
-    z.kind === "gateway" ? "gateway" : "online"
+    z.kind === "gateway" ? "gateway" : "online",
   );
   maybeEmitNodeStatusTransition(zoneId, prevStatus, st.nodeStatus);
   st.logLines = logLines;
@@ -802,7 +834,9 @@ function buildLegacySnapshotPayload(zoneId) {
   const z = findZone(zoneId) || ZONES[0];
   const st = store[z.id];
   const node = findNodeByZone(z.id);
-  const gateway = findGateway(st.gatewayId || node?.gatewayId || GATEWAYS[0]?.id);
+  const gateway = findGateway(
+    st.gatewayId || node?.gatewayId || GATEWAYS[0]?.id,
+  );
   const hist = history.readZoneSeries(DATA_DIR, z.id, 100);
   const merged = history.mergeSeries(hist, st.labels, st.values, 120);
   const temperatureSeries = merged;
@@ -939,7 +973,14 @@ async function buildSnapshotPayload(zoneId) {
     if (!locs.length) {
       return {
         dataProfile: "postgres",
-        zone: { id: "", name: "—", floor: "", mapX: 50, mapY: 50, planPath: null },
+        zone: {
+          id: "",
+          name: "—",
+          floor: "",
+          mapX: 50,
+          mapY: 50,
+          planPath: null,
+        },
         facility: {
           name: "Centrale IoT · PostgreSQL",
           city: "",
@@ -1068,11 +1109,12 @@ app.use("/api/", apiRateLimit);
 // Applica rate limiting strict agli endpoint di autenticazione
 app.use("/api/auth/login", authRateLimit);
 
-
 const ALLOWED_ORIGINS =
   CORS_ORIGIN === "*"
     ? []
-    : CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean);
+    : CORS_ORIGIN.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
 
 function corsOriginDelegate(origin, cb) {
   if (CORS_ORIGIN === "*") {
@@ -1095,9 +1137,21 @@ app.use(
   cors({
     origin: corsOriginDelegate,
     credentials: true,
-  })
+  }),
 );
 app.use(express.json({ limit: "256kb" }));
+
+// Swagger API Documentation - pubblico per facilitare integrazione
+app.use(
+  "/api/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpecs, {
+    explorer: true,
+    customCss: ".swagger-ui .topbar { display: none }",
+    customSiteTitle: "Sesto Senso API Docs",
+  }),
+);
+
 app.use((req, res, next) => {
   const reqId = req.get("x-request-id") || crypto.randomUUID();
   req.reqId = reqId;
@@ -1107,7 +1161,10 @@ app.use((req, res, next) => {
     const elapsedMs = Date.now() - started;
     metrics.requestsTotal += 1;
     metrics.requestDurationMsTotal += elapsedMs;
-    metrics.requestDurationMsMax = Math.max(metrics.requestDurationMsMax, elapsedMs);
+    metrics.requestDurationMsMax = Math.max(
+      metrics.requestDurationMsMax,
+      elapsedMs,
+    );
     if (res.statusCode >= 500) metrics.requests5xx += 1;
     else if (res.statusCode >= 400) metrics.requests4xx += 1;
     else if (res.statusCode >= 300) metrics.requests3xx += 1;
@@ -1140,7 +1197,9 @@ function makeRateLimit({ windowMs, max, keyPrefix, maxKeys = 10_000 }) {
       }
     }
     if (arr.length > max) {
-      return res.status(429).json({ error: "rate_limited", retryAfterMs: windowMs });
+      return res
+        .status(429)
+        .json({ error: "rate_limited", retryAfterMs: windowMs });
     }
     return next();
   };
@@ -1158,7 +1217,7 @@ const limitAdminLogin = makeRateLimit({
 });
 const limitIngest = makeRateLimit({
   windowMs: 60_000,
-  max: 240,
+  max: 60, // 1 richiesta/sec per IP - sufficiente per sensori LoRa
   keyPrefix: "ingest",
 });
 const limitReport = makeRateLimit({
@@ -1184,7 +1243,10 @@ function validateIsoRange(fromIso, toIso) {
 }
 
 app.use("/api/auth/login", limitAuthLogin);
-attachAuthRoutes(app, { requireAuth: REQUIRE_AUTH, authPassword: AUTH_PASSWORD });
+attachAuthRoutes(app, {
+  requireAuth: REQUIRE_AUTH,
+  authPassword: AUTH_PASSWORD,
+});
 
 app.get("/api/admin/auth/options", (_req, res) => {
   res.json({ adminPasswordRequired: adminAuthLib.isAdminPasswordConfigured() });
@@ -1249,11 +1311,39 @@ function ingestAuth(req, res, next) {
 
 app.use(protectDataApis);
 
-app.get("/health", (_req, res) => {
-  res.json({
-    ok: true,
+/**
+ * Health check dettagliato con verifica componenti
+ */
+app.get("/health", async (_req, res) => {
+  const checks = {
+    server: { ok: true, uptimeSec: Math.floor(process.uptime()) },
+    database: { ok: false, latencyMs: null },
+    telegram: { ok: false, configured: false },
+  };
+
+  // Check database
+  if (pgStore) {
+    const dbStart = Date.now();
+    try {
+      await pgStore.withClient(async () => ({ ok: true }));
+      checks.database.ok = true;
+      checks.database.latencyMs = Date.now() - dbStart;
+    } catch (err) {
+      checks.database.ok = false;
+      checks.database.error = err.message;
+    }
+  }
+
+  // Check Telegram
+  checks.telegram.configured = isTelegramConfigured();
+  checks.telegram.ok = checks.telegram.configured;
+
+  const allOk = checks.server.ok && checks.database.ok && checks.telegram.ok;
+
+  res.status(allOk ? 200 : 503).json({
+    ok: allOk,
     ts: new Date().toISOString(),
-    uptimeSec: Math.floor(process.uptime()),
+    checks,
   });
 });
 
@@ -1291,7 +1381,7 @@ app.get("/metrics", (_req, res) => {
       `websocket_connections_rejected_total ${metrics.wsConnectionsRejected}`,
       `ingest_accepted_total ${metrics.ingestAccepted}`,
       `ingest_rejected_total ${metrics.ingestRejected}`,
-    ].join("\n")
+    ].join("\n"),
   );
 });
 
@@ -1436,7 +1526,7 @@ app.get("/api/water/savings", limitApiRead, async (req, res) => {
     }
 
     const { getWaterThresholds, findSensorByDevEui } = pgStore;
-    
+
     // Recupera tutti i sensori acqua/flusso
     const waterNodes = ["node-water-01", "node-flow-01"];
     const waterData = [];
@@ -1452,11 +1542,12 @@ app.get("/api/water/savings", limitApiRead, async (req, res) => {
       const potentialSavings = {
         nightLeakPrevented: thresholds.night_flow_threshold * 4 * 60, // L per notte
         filterOptimization: thresholds.filter_maintenance_limit * 0.1, // 10% di spreco
-        totalPotentialSavings: 0
+        totalPotentialSavings: 0,
       };
-      
-      potentialSavings.totalPotentialSavings = 
-        potentialSavings.nightLeakPrevented + potentialSavings.filterOptimization;
+
+      potentialSavings.totalPotentialSavings =
+        potentialSavings.nightLeakPrevented +
+        potentialSavings.filterOptimization;
 
       waterData.push({
         nodeId,
@@ -1464,22 +1555,38 @@ app.get("/api/water/savings", limitApiRead, async (req, res) => {
         location: sensor.location,
         totalLitersFlowed: Math.round(thresholds.total_liters_flowed || 0),
         filterMaintenanceLimit: thresholds.filter_maintenance_limit,
-        filterUsagePercent: Math.round((thresholds.total_liters_flowed / thresholds.filter_maintenance_limit) * 100),
+        filterUsagePercent: Math.round(
+          (thresholds.total_liters_flowed /
+            thresholds.filter_maintenance_limit) *
+            100,
+        ),
         nightFlowThreshold: thresholds.night_flow_threshold,
         potentialSavings,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
       });
     }
 
     // Calcola totali e metriche aggregate
     const totalData = {
-      totalLitersAllNodes: waterData.reduce((sum, d) => sum + d.totalLitersFlowed, 0),
-      totalPotentialSavings: waterData.reduce((sum, d) => sum + d.potentialSavings.totalPotentialSavings, 0),
-      averageFilterUsage: waterData.length > 0 
-        ? Math.round(waterData.reduce((sum, d) => sum + d.filterUsagePercent, 0) / waterData.length)
-        : 0,
+      totalLitersAllNodes: waterData.reduce(
+        (sum, d) => sum + d.totalLitersFlowed,
+        0,
+      ),
+      totalPotentialSavings: waterData.reduce(
+        (sum, d) => sum + d.potentialSavings.totalPotentialSavings,
+        0,
+      ),
+      averageFilterUsage:
+        waterData.length > 0
+          ? Math.round(
+              waterData.reduce((sum, d) => sum + d.filterUsagePercent, 0) /
+                waterData.length,
+            )
+          : 0,
       activeWaterNodes: waterData.length,
-      nodesNeedingMaintenance: waterData.filter(d => d.filterUsagePercent >= 90).length
+      nodesNeedingMaintenance: waterData.filter(
+        (d) => d.filterUsagePercent >= 90,
+      ).length,
     };
 
     res.json({
@@ -1488,22 +1595,27 @@ app.get("/api/water/savings", limitApiRead, async (req, res) => {
         nodes: waterData,
         totals: totalData,
         insights: {
-          status: totalData.nodesNeedingMaintenance > 0 ? "maintenance_needed" : "optimal",
-          recommendation: totalData.nodesNeedingMaintenance > 0 
-            ? `${totalData.nodesNeedingMaintenance} nodi richiedono manutenzione filtri`
-            : "Sistema operativo efficiente",
-          estimatedMonthlySavings: Math.round(totalData.totalPotentialSavings * 30), // Stima mensile
-          co2Reduction: Math.round(totalData.totalPotentialSavings * 0.0003) // 0.3kg CO2 per litro
+          status:
+            totalData.nodesNeedingMaintenance > 0
+              ? "maintenance_needed"
+              : "optimal",
+          recommendation:
+            totalData.nodesNeedingMaintenance > 0
+              ? `${totalData.nodesNeedingMaintenance} nodi richiedono manutenzione filtri`
+              : "Sistema operativo efficiente",
+          estimatedMonthlySavings: Math.round(
+            totalData.totalPotentialSavings * 30,
+          ), // Stima mensile
+          co2Reduction: Math.round(totalData.totalPotentialSavings * 0.0003), // 0.3kg CO2 per litro
         },
-        generated_at: new Date().toISOString()
-      }
+        generated_at: new Date().toISOString(),
+      },
     });
-
   } catch (error) {
     console.error("[API] /api/water/savings error:", error);
-    res.status(500).json({ 
-      error: "internal_error", 
-      message: "Errore recupero dati risparmio idrico" 
+    res.status(500).json({
+      error: "internal_error",
+      message: "Errore recupero dati risparmio idrico",
     });
   }
 });
@@ -1515,14 +1627,20 @@ app.get("/api/history", limitApiRead, async (req, res) => {
     return res.status(400).json({ error: "invalid_time_range" });
   }
   const range =
-    fromIso || toIso ? { fromIso: fromIso || undefined, toIso: toIso || undefined } : {};
+    fromIso || toIso
+      ? { fromIso: fromIso || undefined, toIso: toIso || undefined }
+      : {};
 
   if (pgStore) {
     const zone = await resolveSnapshotZoneOrError(req.query.zoneId);
     if (!zone.ok) return res.status(400).json({ error: zone.error });
     const { zoneId } = zone;
     const limit = Math.min(4000, Math.max(1, Number(req.query.limit) || 200));
-    const samples = await pgStore.historySamplesForLocation(zoneId, limit, range);
+    const samples = await pgStore.historySamplesForLocation(
+      zoneId,
+      limit,
+      range,
+    );
     const sensorsCatalog =
       zoneId && !zone.empty ? await pgStore.listSensorsForLocation(zoneId) : [];
     return res.json({
@@ -1565,7 +1683,9 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
     return res.status(400).json({ error: "invalid_time_range" });
   }
   const range =
-    fromIso || toIso ? { fromIso: fromIso || undefined, toIso: toIso || undefined } : {};
+    fromIso || toIso
+      ? { fromIso: fromIso || undefined, toIso: toIso || undefined }
+      : {};
   const cap = Math.min(15000, Math.max(50, Number(req.query.limit) || 4000));
 
   if (pgStore) {
@@ -1573,18 +1693,21 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
     if (!zone.ok) return res.status(400).json({ error: zone.error });
     const { zoneId } = zone;
     const rows = await pgStore.csvRowsForLocation(zoneId, cap, range);
-    const safeName = String(zoneId).replace(/[^\w\-]+/g, "_").slice(0, 80) || "export";
+    const safeName =
+      String(zoneId)
+        .replace(/[^\w\-]+/g, "_")
+        .slice(0, 80) || "export";
     res.setHeader("content-type", "text/csv; charset=utf-8");
     res.setHeader(
       "content-disposition",
-      `attachment; filename="palestra-${safeName}-misure.csv"`
+      `attachment; filename="palestra-${safeName}-misure.csv"`,
     );
     const header =
       "timestamp_utc,dev_eui,sensor_name,location,type,value,rssi,snr,battery_pct\n";
     const csvCell = (v) => {
       if (v === null || v === undefined) return "";
       const s = String(v);
-      if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, "\"\"")}"`;
+      if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
       return s;
     };
     const body = rows
@@ -1601,7 +1724,7 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
           r.battery ?? "",
         ]
           .map(csvCell)
-          .join(",")
+          .join(","),
       )
       .join("\n");
     return res.send(header + body);
@@ -1616,18 +1739,18 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
   const rows = nodeId
     ? history.readNodeHistoryPoints(DATA_DIR, nodeId, cap, range)
     : history.readZoneHistoryPoints(DATA_DIR, zoneId, cap, range);
-  const name = nodeId || (ZONES.find((z) => z.id === zoneId)?.id || zoneId);
+  const name = nodeId || ZONES.find((z) => z.id === zoneId)?.id || zoneId;
   res.setHeader("content-type", "text/csv; charset=utf-8");
   res.setHeader(
     "content-disposition",
-    `attachment; filename="palestra-${name}-storico.csv"`
+    `attachment; filename="palestra-${name}-storico.csv"`,
   );
   const header =
     "iso_utc,target,temp_c,water_pct,humidity_pct,co2_ppm,voc_index,light_lux,flow_lmin\n";
   const csvCell = (v) => {
     if (v === null || v === undefined) return "";
     const s = String(v);
-    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, "\"\"")}"`;
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
   };
   const body = rows
@@ -1644,7 +1767,7 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
         r.flow ?? "",
       ]
         .map(csvCell)
-        .join(",")
+        .join(","),
     )
     .join("\n");
   res.send(header + body);
@@ -1657,18 +1780,18 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
 (function attachFrontendStaticFromBuild() {
   const custom = String(process.env.STATIC_BUILD_DIR || "").trim();
   const projectRoot = path.resolve(__dirname, "..");
-  
+
   // Cerca il build in varie posizioni (locale, Render, etc.)
   const possiblePaths = custom
     ? [path.resolve(custom)]
     : [
-        path.resolve(projectRoot, "build"),                    // ../build (standard)
-        path.resolve(process.cwd(), "build"),                  // ./build (Render cwd)
+        path.resolve(projectRoot, "build"), // ../build (standard)
+        path.resolve(process.cwd(), "build"), // ./build (Render cwd)
       ];
-  
+
   let frontendRoot = null;
   let indexPath = null;
-  
+
   for (const testPath of possiblePaths) {
     const testIndex = path.join(testPath, "index.html");
     if (fs.existsSync(testIndex)) {
@@ -1678,18 +1801,20 @@ app.get("/api/report/csv", limitReport, async (req, res) => {
       break;
     }
   }
-  
+
   // Non fare build at startup: supererebbe il timeout di Render.
-  
+
   if (!frontendRoot) {
-    console.warn("[static] Nessun frontend disponibile. Solo API/WebSocket attivo.");
+    console.warn(
+      "[static] Nessun frontend disponibile. Solo API/WebSocket attivo.",
+    );
     return;
   }
   app.use(
     express.static(frontendRoot, {
       index: false,
       maxAge: IS_PROD ? "1h" : 0,
-    })
+    }),
   );
   app.get("*", (req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
@@ -1742,7 +1867,9 @@ function wsAuthOk(req) {
 wss.on("connection", (ws, req) => {
   if (!wsAuthOk(req)) {
     metrics.wsConnectionsRejected += 1;
-    logEvent("warn", "ws_unauthorized", { ip: req.socket?.remoteAddress || "unknown" });
+    logEvent("warn", "ws_unauthorized", {
+      ip: req.socket?.remoteAddress || "unknown",
+    });
     ws.close(4001, "unauthorized");
     return;
   }
@@ -1760,7 +1887,7 @@ wss.on("connection", (ws, req) => {
           type: "snapshot",
           zoneId: ws._zoneId,
           data: payload,
-        })
+        }),
       );
     } catch (err) {
       logEvent("error", "ws_snapshot_failed", {
@@ -1784,14 +1911,14 @@ broadcastSnapshots = async () => {
             type: "snapshot",
             zoneId: ws._zoneId,
             data: payload,
-          })
+          }),
         );
       } catch (err) {
         logEvent("error", "ws_broadcast_failed", {
           error: err && err.message ? err.message : String(err),
         });
       }
-    })
+    }),
   );
 };
 
@@ -1863,23 +1990,29 @@ app.post("/api/ingest", limitIngest, ingestAuth, async (req, res) => {
   }
 });
 
-app.get("/api/admin/sensors", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  try {
-    const sensors = await pgStore.listSensorsAll();
-    res.json({ sensors });
-  } catch (err) {
-    logEvent("error", "admin_list_sensors", {
-      error: err && err.message ? err.message : String(err),
-    });
-    res.status(500).json({ error: "db_error" });
-  }
-});
+app.get(
+  "/api/admin/sensors",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (_req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const sensors = await pgStore.listSensorsAll();
+      res.json({ sensors });
+    } catch (err) {
+      logEvent("error", "admin_list_sensors", {
+        error: err && err.message ? err.message : String(err),
+      });
+      res.status(500).json({ error: "db_error" });
+    }
+  },
+);
 
 function adminSensorErrorResponse(err) {
   const code = err && err.code ? String(err.code) : "";
   const hints = {
-    invalid_dev_eui: "Il DevEUI deve essere esattamente 16 caratteri esadecimali (0–9, A–F).",
+    invalid_dev_eui:
+      "Il DevEUI deve essere esattamente 16 caratteri esadecimali (0–9, A–F).",
     empty_sensor_name: "Il nome del sensore non può essere vuoto.",
     empty_sensor_location: "La posizione (zona) non può essere vuota.",
     empty_sensor_type: "Il tipo sensore non può essere vuoto.",
@@ -1888,265 +2021,473 @@ function adminSensorErrorResponse(err) {
     dev_eui_duplicate:
       "Esiste già un sensore con questo DevEUI. Ogni dispositivo LoRaWAN deve avere un DevEUI univoco nel database.",
   };
-  if (code === "invalid_dev_eui" || code === "empty_sensor_name" || code === "empty_sensor_location" || code === "empty_sensor_type" || code === "invalid_threshold") {
+  if (
+    code === "invalid_dev_eui" ||
+    code === "empty_sensor_name" ||
+    code === "empty_sensor_location" ||
+    code === "empty_sensor_type" ||
+    code === "invalid_threshold"
+  ) {
     return { status: 400, body: { error: code, hint: hints[code] || code } };
   }
   if (code === "dev_eui_duplicate") {
-    return { status: 409, body: { error: code, hint: hints.dev_eui_duplicate } };
+    return {
+      status: 409,
+      body: { error: code, hint: hints.dev_eui_duplicate },
+    };
   }
   return null;
 }
 
-app.post("/api/admin/sensors", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  try {
-    const row = await pgStore.insertSensor(req.body || {});
-    await broadcastSnapshots();
-    res.status(201).json(row);
-  } catch (err) {
-    const mapped = adminSensorErrorResponse(err);
-    if (mapped) return res.status(mapped.status).json(mapped.body);
-    const msg = err && err.message ? err.message : String(err);
-    if (/unique/i.test(msg)) {
-      return res.status(409).json({
-        error: "dev_eui_duplicate",
-        hint:
-          "Esiste già un sensore con questo DevEUI. Ogni dispositivo deve avere un DevEUI univoco nel database.",
-      });
+app.post(
+  "/api/admin/sensors",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const row = await pgStore.insertSensor(req.body || {});
+      await broadcastSnapshots();
+      res.status(201).json(row);
+    } catch (err) {
+      const mapped = adminSensorErrorResponse(err);
+      if (mapped) return res.status(mapped.status).json(mapped.body);
+      const msg = err && err.message ? err.message : String(err);
+      if (/unique/i.test(msg)) {
+        return res.status(409).json({
+          error: "dev_eui_duplicate",
+          hint: "Esiste già un sensore con questo DevEUI. Ogni dispositivo deve avere un DevEUI univoco nel database.",
+        });
+      }
+      logEvent("error", "admin_insert_sensor", { error: msg });
+      res.status(500).json({ error: "db_error" });
     }
-    logEvent("error", "admin_insert_sensor", { error: msg });
-    res.status(500).json({ error: "db_error" });
-  }
-});
+  },
+);
 
-app.patch("/api/admin/sensors/:id", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
-  try {
-    const row = await pgStore.updateSensor(id, req.body || {});
-    if (!row) return res.status(404).json({ error: "not_found" });
-    await broadcastSnapshots();
-    res.json(row);
-  } catch (err) {
-    const mapped = adminSensorErrorResponse(err);
-    if (mapped) return res.status(mapped.status).json(mapped.body);
-    const msg = err && err.message ? err.message : String(err);
-    if (/unique/i.test(msg)) {
-      return res.status(409).json({
-        error: "dev_eui_duplicate",
-        hint:
-          "Esiste già un sensore con questo DevEUI. Ogni dispositivo deve avere un DevEUI univoco nel database.",
-      });
+app.patch(
+  "/api/admin/sensors/:id",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id))
+      return res.status(400).json({ error: "invalid_id" });
+    try {
+      const row = await pgStore.updateSensor(id, req.body || {});
+      if (!row) return res.status(404).json({ error: "not_found" });
+      await broadcastSnapshots();
+      res.json(row);
+    } catch (err) {
+      const mapped = adminSensorErrorResponse(err);
+      if (mapped) return res.status(mapped.status).json(mapped.body);
+      const msg = err && err.message ? err.message : String(err);
+      if (/unique/i.test(msg)) {
+        return res.status(409).json({
+          error: "dev_eui_duplicate",
+          hint: "Esiste già un sensore con questo DevEUI. Ogni dispositivo deve avere un DevEUI univoco nel database.",
+        });
+      }
+      logEvent("error", "admin_update_sensor", { error: msg });
+      res.status(500).json({ error: "db_error" });
     }
-    logEvent("error", "admin_update_sensor", { error: msg });
-    res.status(500).json({ error: "db_error" });
-  }
-});
+  },
+);
 
-app.delete("/api/admin/sensors/:id", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
-  try {
-    const ok = await pgStore.deleteSensor(id);
-    if (!ok) return res.status(404).json({ error: "not_found" });
-    await broadcastSnapshots();
-    res.json({ ok: true });
-  } catch (err) {
-    logEvent("error", "admin_delete_sensor", {
-      error: err && err.message ? err.message : String(err),
-    });
-    res.status(500).json({ error: "db_error" });
-  }
-});
+app.delete(
+  "/api/admin/sensors/:id",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id))
+      return res.status(400).json({ error: "invalid_id" });
+    try {
+      const ok = await pgStore.deleteSensor(id);
+      if (!ok) return res.status(404).json({ error: "not_found" });
+      await broadcastSnapshots();
+      res.json({ ok: true });
+    } catch (err) {
+      logEvent("error", "admin_delete_sensor", {
+        error: err && err.message ? err.message : String(err),
+      });
+      res.status(500).json({ error: "db_error" });
+    }
+  },
+);
 
 /**
  * Endpoint Backup - Gestione backup PostgreSQL
  */
-app.get("/api/admin/backups", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
-  try {
-    const backups = backupManager.listBackups();
-    const stats = await backupManager.getDatabaseStats();
-    res.json({
-      backups,
-      databaseStats: stats,
-      retentionDays: backupManager.RETENTION_DAYS,
-      backupDir: backupManager.BACKUP_DIR,
-    });
-  } catch (err) {
-    logEvent("error", "admin_list_backups", {
-      error: err && err.message ? err.message : String(err),
-    });
-    res.status(500).json({ error: "backup_list_error" });
-  }
-});
+app.get(
+  "/api/admin/backups",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (_req, res) => {
+    try {
+      const backups = backupManager.listBackups();
+      const stats = await backupManager.getDatabaseStats();
+      res.json({
+        backups,
+        databaseStats: stats,
+        retentionDays: backupManager.RETENTION_DAYS,
+        backupDir: backupManager.BACKUP_DIR,
+      });
+    } catch (err) {
+      logEvent("error", "admin_list_backups", {
+        error: err && err.message ? err.message : String(err),
+      });
+      res.status(500).json({ error: "backup_list_error" });
+    }
+  },
+);
 
-app.post("/api/admin/backup", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
-  try {
-    const stats = await backupManager.getDatabaseStats();
-    const backup = await backupManager.createBackup();
-    // Cleanup automatico dopo ogni backup
-    const cleanup = await backupManager.cleanupOldBackups();
-    res.json({
-      ok: true,
-      backup,
-      databaseStats: stats,
-      cleanup,
-    });
-  } catch (err) {
-    logEvent("error", "admin_create_backup", {
-      error: err && err.message ? err.message : String(err),
-    });
-    res.status(500).json({ error: "backup_failed", message: err.message });
-  }
-});
+app.post(
+  "/api/admin/backup",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (_req, res) => {
+    try {
+      const stats = await backupManager.getDatabaseStats();
+      const backup = await backupManager.createBackup();
+      // Cleanup automatico dopo ogni backup
+      const cleanup = await backupManager.cleanupOldBackups();
+      res.json({
+        ok: true,
+        backup,
+        databaseStats: stats,
+        cleanup,
+      });
+    } catch (err) {
+      logEvent("error", "admin_create_backup", {
+        error: err && err.message ? err.message : String(err),
+      });
+      res.status(500).json({ error: "backup_failed", message: err.message });
+    }
+  },
+);
 
-app.post("/api/admin/backup/cleanup", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
-  try {
-    const result = await backupManager.cleanupOldBackups();
-    res.json({ ok: true, result });
-  } catch (err) {
-    logEvent("error", "admin_cleanup_backups", {
-      error: err && err.message ? err.message : String(err),
-    });
-    res.status(500).json({ error: "cleanup_failed" });
-  }
-});
+app.post(
+  "/api/admin/backup/cleanup",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (_req, res) => {
+    try {
+      const result = await backupManager.cleanupOldBackups();
+      res.json({ ok: true, result });
+    } catch (err) {
+      logEvent("error", "admin_cleanup_backups", {
+        error: err && err.message ? err.message : String(err),
+      });
+      res.status(500).json({ error: "cleanup_failed" });
+    }
+  },
+);
 
 /**
  * Endpoint Partition Manager - Gestione partizioni PostgreSQL
  */
-app.get("/api/admin/partitions", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  try {
-    const stats = await partitionManager.getPartitionStats();
-    const partitions = await partitionManager.listPartitions();
-    res.json({
-      stats,
-      partitions,
-      monthsToKeep: PARTITION_MONTHS_KEEP,
-      archiveEnabled: process.env.PARTITION_ARCHIVE_OLD !== "false",
-    });
-  } catch (err) {
-    logEvent("error", "admin_list_partitions", {
-      error: err && err.message ? err.message : String(err),
-    });
-    res.status(500).json({ error: "partition_list_error" });
-  }
-});
+app.get(
+  "/api/admin/partitions",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (_req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const stats = await partitionManager.getPartitionStats();
+      const partitions = await partitionManager.listPartitions();
+      res.json({
+        stats,
+        partitions,
+        monthsToKeep: PARTITION_MONTHS_KEEP,
+        archiveEnabled: process.env.PARTITION_ARCHIVE_OLD !== "false",
+      });
+    } catch (err) {
+      logEvent("error", "admin_list_partitions", {
+        error: err && err.message ? err.message : String(err),
+      });
+      res.status(500).json({ error: "partition_list_error" });
+    }
+  },
+);
 
-app.post("/api/admin/partitions/maintenance", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  try {
-    const result = await partitionManager.runPartitionMaintenance();
-    res.json({ ok: true, result });
-  } catch (err) {
-    logEvent("error", "admin_partition_maintenance", {
-      error: err && err.message ? err.message : String(err),
-    });
-    res.status(500).json({ error: "partition_maintenance_failed", message: err.message });
-  }
-});
+app.post(
+  "/api/admin/partitions/maintenance",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (_req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const result = await partitionManager.runPartitionMaintenance();
+      res.json({ ok: true, result });
+    } catch (err) {
+      logEvent("error", "admin_partition_maintenance", {
+        error: err && err.message ? err.message : String(err),
+      });
+      res
+        .status(500)
+        .json({ error: "partition_maintenance_failed", message: err.message });
+    }
+  },
+);
 
-app.post("/api/admin/partitions/create", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  try {
-    const targetDate = req.body?.date ? new Date(req.body.date) : new Date();
-    const result = await partitionManager.createPartitionForMonth(targetDate);
-    res.json({ ok: true, result });
-  } catch (err) {
-    logEvent("error", "admin_create_partition", {
-      error: err && err.message ? err.message : String(err),
-    });
-    res.status(500).json({ error: "partition_create_failed", message: err.message });
-  }
-});
+app.post(
+  "/api/admin/partitions/create",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const targetDate = req.body?.date ? new Date(req.body.date) : new Date();
+      const result = await partitionManager.createPartitionForMonth(targetDate);
+      res.json({ ok: true, result });
+    } catch (err) {
+      logEvent("error", "admin_create_partition", {
+        error: err && err.message ? err.message : String(err),
+      });
+      res
+        .status(500)
+        .json({ error: "partition_create_failed", message: err.message });
+    }
+  },
+);
 
 /**
  * Endpoint RBAC - Gestione utenti e audit trail
  * Solo admin può gestire utenti, tutti gli utenti autenticati possono vedere audit
  */
-app.get("/api/admin/users", limitApiRead, adminAuthLib.requireAdminAuth, async (_req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  try {
-    const users = await rbacManager.listUsers();
-    res.json({ users, roles: Object.values(rbacManager.ROLES) });
-  } catch (err) {
-    logEvent("error", "admin_list_users", { error: err?.message || String(err) });
-    res.status(500).json({ error: "users_list_error" });
-  }
-});
-
-app.post("/api/admin/users", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  try {
-    const { username, email, passwordHash, role } = req.body || {};
-    if (!username || !passwordHash) {
-      return res.status(400).json({ error: "missing_fields", hint: "username and passwordHash required" });
+app.get(
+  "/api/admin/users",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (_req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const users = await rbacManager.listUsers();
+      res.json({ users, roles: Object.values(rbacManager.ROLES) });
+    } catch (err) {
+      logEvent("error", "admin_list_users", {
+        error: err?.message || String(err),
+      });
+      res.status(500).json({ error: "users_list_error" });
     }
-    const auditContext = { userId: req.user?.id, username: req.user?.username, role: req.user?.role, ip: req.ip, userAgent: req.get("user-agent") };
-    const user = await rbacManager.createUser({ username, email, passwordHash, role, createdBy: req.user?.id }, auditContext);
-    res.status(201).json(user);
-  } catch (err) {
-    if (err.message?.includes("unique")) {
-      return res.status(409).json({ error: "username_exists", hint: "Username già in uso" });
+  },
+);
+
+app.post(
+  "/api/admin/users",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const { username, email, passwordHash, role } = req.body || {};
+      if (!username || !passwordHash) {
+        return res
+          .status(400)
+          .json({
+            error: "missing_fields",
+            hint: "username and passwordHash required",
+          });
+      }
+      const auditContext = {
+        userId: req.user?.id,
+        username: req.user?.username,
+        role: req.user?.role,
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      };
+      const user = await rbacManager.createUser(
+        { username, email, passwordHash, role, createdBy: req.user?.id },
+        auditContext,
+      );
+      res.status(201).json(user);
+    } catch (err) {
+      if (err.message?.includes("unique")) {
+        return res
+          .status(409)
+          .json({ error: "username_exists", hint: "Username già in uso" });
+      }
+      logEvent("error", "admin_create_user", {
+        error: err?.message || String(err),
+      });
+      res.status(500).json({ error: "user_create_failed" });
     }
-    logEvent("error", "admin_create_user", { error: err?.message || String(err) });
-    res.status(500).json({ error: "user_create_failed" });
-  }
-});
+  },
+);
 
-app.patch("/api/admin/users/:id", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
-  try {
-    const auditContext = { userId: req.user?.id, username: req.user?.username, role: req.user?.role, ip: req.ip, userAgent: req.get("user-agent") };
-    const user = await rbacManager.updateUser(id, req.body || {}, auditContext);
-    if (!user) return res.status(404).json({ error: "not_found" });
-    res.json(user);
-  } catch (err) {
-    logEvent("error", "admin_update_user", { error: err?.message || String(err) });
-    res.status(500).json({ error: "user_update_failed" });
-  }
-});
+app.patch(
+  "/api/admin/users/:id",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id))
+      return res.status(400).json({ error: "invalid_id" });
+    try {
+      const auditContext = {
+        userId: req.user?.id,
+        username: req.user?.username,
+        role: req.user?.role,
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      };
+      const user = await rbacManager.updateUser(
+        id,
+        req.body || {},
+        auditContext,
+      );
+      if (!user) return res.status(404).json({ error: "not_found" });
+      res.json(user);
+    } catch (err) {
+      logEvent("error", "admin_update_user", {
+        error: err?.message || String(err),
+      });
+      res.status(500).json({ error: "user_update_failed" });
+    }
+  },
+);
 
-app.delete("/api/admin/users/:id", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid_id" });
-  try {
-    const auditContext = { userId: req.user?.id, username: req.user?.username, role: req.user?.role, ip: req.ip, userAgent: req.get("user-agent") };
-    const user = await rbacManager.deleteUser(id, auditContext);
-    if (!user) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true, deleted: id });
-  } catch (err) {
-    logEvent("error", "admin_delete_user", { error: err?.message || String(err) });
-    res.status(500).json({ error: "user_delete_failed" });
-  }
-});
+app.delete(
+  "/api/admin/users/:id",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id))
+      return res.status(400).json({ error: "invalid_id" });
+    try {
+      const auditContext = {
+        userId: req.user?.id,
+        username: req.user?.username,
+        role: req.user?.role,
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      };
+      const user = await rbacManager.deleteUser(id, auditContext);
+      if (!user) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true, deleted: id });
+    } catch (err) {
+      logEvent("error", "admin_delete_user", {
+        error: err?.message || String(err),
+      });
+      res.status(500).json({ error: "user_delete_failed" });
+    }
+  },
+);
 
-app.get("/api/admin/audit", limitApiRead, adminAuthLib.requireAdminAuth, async (req, res) => {
-  if (!pgStore) return res.status(503).json({ error: "database_required" });
-  try {
-    const { userId, action, resourceType, resourceId, from, to, limit = 100, offset = 0 } = req.query;
-    const result = await rbacManager.getAuditLogs({
-      userId: userId ? Number(userId) : undefined,
-      action,
-      resourceType,
-      resourceId,
-      fromDate: from,
-      toDate: to,
-      limit: Number(limit),
-      offset: Number(offset),
-    });
-    res.json(result);
-  } catch (err) {
-    logEvent("error", "admin_list_audit", { error: err?.message || String(err) });
-    res.status(500).json({ error: "audit_list_error" });
-  }
-});
+app.get(
+  "/api/admin/audit",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const {
+        userId,
+        action,
+        resourceType,
+        resourceId,
+        from,
+        to,
+        limit = 100,
+        offset = 0,
+      } = req.query;
+      const result = await rbacManager.getAuditLogs({
+        userId: userId ? Number(userId) : undefined,
+        action,
+        resourceType,
+        resourceId,
+        fromDate: from,
+        toDate: to,
+        limit: Number(limit),
+        offset: Number(offset),
+      });
+      res.json(result);
+    } catch (err) {
+      logEvent("error", "admin_list_audit", {
+        error: err?.message || String(err),
+      });
+      res.status(500).json({ error: "audit_list_error" });
+    }
+  },
+);
+
+/**
+ * Endpoint metrics dashboard - statistiche sistema in tempo reale
+ * GET /api/admin/metrics (protetto da admin auth)
+ */
+const metricsCollector = require("./lib/metrics");
+const batteryPrediction = require("./lib/batteryPrediction");
+
+app.get(
+  "/api/admin/metrics",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (_req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const metrics = await metricsCollector.collectMetrics();
+      res.json({ ok: true, metrics });
+    } catch (err) {
+      logEvent("error", "admin_metrics", {
+        error: err?.message || String(err),
+      });
+      res.status(500).json({ error: "metrics_collection_failed" });
+    }
+  },
+);
+
+/**
+ * Endpoint predizione batteria - ML semplice
+ * GET /api/admin/battery-predictions?sensorId=xxx
+ */
+app.get(
+  "/api/admin/battery-predictions",
+  limitApiRead,
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    if (!pgStore) return res.status(503).json({ error: "database_required" });
+    try {
+      const sensorId = req.query.sensorId;
+      if (sensorId) {
+        // Predizione singolo sensore
+        const sensor = await pgStore.findSensorByDevEui(sensorId);
+        if (!sensor) {
+          return res.status(404).json({ error: "sensor_not_found" });
+        }
+        const prediction = await batteryPrediction.predictBatteryEmpty(sensorId);
+        res.json({
+          ok: true,
+          sensor: {
+            id: sensor.id,
+            devEui: sensor.dev_eui,
+            name: sensor.name,
+            location: sensor.location,
+          },
+          prediction,
+        });
+      } else {
+        // Predizione tutti i sensori (solo quelli urgenti)
+        const urgentPredictions = await batteryPrediction.analyzeAllBatteries();
+        res.json({
+          ok: true,
+          count: urgentPredictions.length,
+          predictions: urgentPredictions,
+        });
+      }
+    } catch (err) {
+      logEvent("error", "admin_battery_prediction", {
+        error: err?.message || String(err),
+      });
+      res.status(500).json({ error: "battery_prediction_failed" });
+    }
+  },
+);
 
 /**
  * Endpoint migrazione database - esegue SQL 003_telemetry_schema.sql
@@ -2154,7 +2495,9 @@ app.get("/api/admin/audit", limitApiRead, adminAuthLib.requireAdminAuth, async (
  * GET /api/admin/migrate?key=TUO_ADMIN_KEY
  */
 function requireOpsKey(req, res, next) {
-  const configuredKey = String(process.env.ADMIN_KEY || process.env.INGEST_SECRET || "").trim();
+  const configuredKey = String(
+    process.env.ADMIN_KEY || process.env.INGEST_SECRET || "",
+  ).trim();
   if (!configuredKey) {
     return res.status(503).json({ error: "admin_key_not_configured" });
   }
@@ -2177,15 +2520,17 @@ app.get("/api/admin/dbcheck", requireOpsKey, (req, res) => {
 
 app.get("/api/admin/migrate", requireOpsKey, async (req, res) => {
   try {
-    const fs = require('fs');
-    const path = require('path');
-    const sqlPath = path.join(__dirname, 'sql', '003_telemetry_schema.sql');
-    
+    const fs = require("fs");
+    const path = require("path");
+    const sqlPath = path.join(__dirname, "sql", "003_telemetry_schema.sql");
+
     if (!fs.existsSync(sqlPath)) {
-      return res.status(404).json({ error: "migration_not_found", path: sqlPath });
+      return res
+        .status(404)
+        .json({ error: "migration_not_found", path: sqlPath });
     }
-    
-    const sql = fs.readFileSync(sqlPath, 'utf8');
+
+    const sql = fs.readFileSync(sqlPath, "utf8");
 
     const runCompatibilityMigration = async (client) => {
       const executed = [];
@@ -2216,14 +2561,18 @@ app.get("/api/admin/migrate", requireOpsKey, async (req, res) => {
       ];
 
       try {
-        await client.query(`ALTER TABLE measurements RENAME COLUMN battery TO battery_level`);
+        await client.query(
+          `ALTER TABLE measurements RENAME COLUMN battery TO battery_level`,
+        );
         executed.push("rename_battery_column");
       } catch (_renameErr) {
         // compatibilità: colonna legacy potrebbe non esistere
       }
 
       try {
-        await client.query(`ALTER TABLE measurements ALTER COLUMN rssi TYPE INTEGER USING rssi::INTEGER`);
+        await client.query(
+          `ALTER TABLE measurements ALTER COLUMN rssi TYPE INTEGER USING rssi::INTEGER`,
+        );
         executed.push("cast_rssi_integer");
       } catch (_castErr) {
         // compatibilità: rssi può non esistere ancora o già essere INTEGER
@@ -2241,7 +2590,9 @@ app.get("/api/admin/migrate", requireOpsKey, async (req, res) => {
       if (!resolvedUrl) {
         return null;
       }
-      const isRemote = resolvedUrl.includes(".render.com") || !resolvedUrl.includes("localhost");
+      const isRemote =
+        resolvedUrl.includes(".render.com") ||
+        !resolvedUrl.includes("localhost");
       const tempPool = new Pool({
         connectionString: resolvedUrl,
         ssl: isRemote ? { rejectUnauthorized: false } : false,
@@ -2274,15 +2625,19 @@ app.get("/api/admin/migrate", requireOpsKey, async (req, res) => {
       });
     } catch (scriptErr) {
       executionMode = "fallback_compatibility";
-      const executed = await runWithClient(async (client) => runCompatibilityMigration(client));
+      const executed = await runWithClient(async (client) =>
+        runCompatibilityMigration(client),
+      );
       fallbackInfo = {
         original_error: scriptErr?.message || String(scriptErr),
         executed_steps: executed || [],
       };
     }
-    
-    logEvent("info", "migration_executed", { migration: "003_telemetry_schema" });
-    
+
+    logEvent("info", "migration_executed", {
+      migration: "003_telemetry_schema",
+    });
+
     res.json({
       ok: true,
       migration: "003_telemetry_schema",
@@ -2291,19 +2646,21 @@ app.get("/api/admin/migrate", requireOpsKey, async (req, res) => {
       executed_at: new Date().toISOString(),
       changes: [
         "Aggiunta colonna battery_level",
-        "Aggiunta colonna rssi", 
+        "Aggiunta colonna rssi",
         "Aggiunta colonna sensor_type",
         "Creata tabella sensor_maintenance_status",
-        "Creati indici ottimizzati"
+        "Creati indici ottimizzati",
       ],
       fallback: fallbackInfo,
     });
   } catch (err) {
-    logEvent("error", "migration_failed", { error: err?.message || String(err) });
+    logEvent("error", "migration_failed", {
+      error: err?.message || String(err),
+    });
     res.status(500).json({
       error: "migration_failed",
       message: err?.message || "Errore esecuzione migrazione",
-      hint: "Verificare che il database sia accessibile e lo schema sia compatibile"
+      hint: "Verificare che il database sia accessibile e lo schema sia compatibile",
     });
   }
 });
@@ -2321,7 +2678,8 @@ function evaluateOpsAlerts() {
   const now = Date.now();
   if (now - opsAlertWindowState.ts < OPS_ALERT_WINDOW_MS) return;
 
-  const deltaRequests = metrics.requestsTotal - opsAlertWindowState.requestsTotal;
+  const deltaRequests =
+    metrics.requestsTotal - opsAlertWindowState.requestsTotal;
   const delta5xx = metrics.requests5xx - opsAlertWindowState.requests5xx;
   const deltaWsRejected =
     metrics.wsConnectionsRejected - opsAlertWindowState.wsRejected;
@@ -2391,7 +2749,7 @@ const ticker = setInterval(() => {
   broadcastSnapshots().catch((err) =>
     logEvent("error", "broadcast_snapshots", {
       error: err && err.message ? err.message : String(err),
-    })
+    }),
   );
 }, 2000);
 const opsAlertTicker = setInterval(evaluateOpsAlerts, OPS_ALERT_CHECK_EVERY_MS);
@@ -2404,7 +2762,9 @@ if (BACKUP_AUTO_ENABLED && pgStore) {
       console.log("[backup-auto] Avvio backup schedulato...");
       const backup = await backupManager.createBackup();
       const cleanup = await backupManager.cleanupOldBackups();
-      console.log(`[backup-auto] Completato: ${backup.filename}, cleanup: ${cleanup.deleted} rimossi`);
+      console.log(
+        `[backup-auto] Completato: ${backup.filename}, cleanup: ${cleanup.deleted} rimossi`,
+      );
     } catch (err) {
       logEvent("error", "backup_auto_failed", {
         error: err && err.message ? err.message : String(err),
@@ -2433,7 +2793,9 @@ if (PARTITION_AUTO_MAINTENANCE && pgStore) {
     try {
       console.log("[partition-auto] Avvio manutenzione partizioni...");
       const result = await partitionManager.runPartitionMaintenance();
-      console.log(`[partition-auto] Completata: ${result.stats?.totalPartitions || 0} partizioni attive`);
+      console.log(
+        `[partition-auto] Completata: ${result.stats?.totalPartitions || 0} partizioni attive`,
+      );
     } catch (err) {
       logEvent("error", "partition_auto_failed", {
         error: err && err.message ? err.message : String(err),
@@ -2446,10 +2808,13 @@ if (PARTITION_AUTO_MAINTENANCE && pgStore) {
 server.on("error", (err) => {
   if (err && err.code === "EADDRINUSE") {
     console.error(
-      `[fatal] Porta ${PORT} già in uso: probabilmente hai già un gateway attivo. Chiudi l’altra finestra del terminale oppure imposta PORT in server/.env`
+      `[fatal] Porta ${PORT} già in uso: probabilmente hai già un gateway attivo. Chiudi l’altra finestra del terminale oppure imposta PORT in server/.env`,
     );
   } else {
-    console.error("[fatal] server HTTP:", err && err.message ? err.message : err);
+    console.error(
+      "[fatal] server HTTP:",
+      err && err.message ? err.message : err,
+    );
   }
   process.exit(1);
 });
@@ -2490,39 +2855,54 @@ async function startHttpServer() {
       console.log("  API key attiva (REST/ingest via header x-api-key)");
     }
     if (REQUIRE_AUTH) {
-      console.log("  Autenticazione attiva (POST /api/auth/login · password da AUTH_PASSWORD)");
+      console.log(
+        "  Autenticazione attiva (POST /api/auth/login · password da AUTH_PASSWORD)",
+      );
     }
     if (
       IS_RENDER &&
-      (CORS_ORIGIN === "http://localhost:3000" || CORS_ORIGIN === "http://127.0.0.1:3000")
+      (CORS_ORIGIN === "http://localhost:3000" ||
+        CORS_ORIGIN === "http://127.0.0.1:3000")
     ) {
       console.warn(
-        "  [config] CORS_ORIGIN è ancora localhost: su Render imposta l'URL del sito statico (es. https://tuo-frontend.onrender.com) o le API dal browser verranno bloccate (CORS), non per 502."
+        "  [config] CORS_ORIGIN è ancora localhost: su Render imposta l'URL del sito statico (es. https://tuo-frontend.onrender.com) o le API dal browser verranno bloccate (CORS), non per 502.",
       );
     }
     if (NOTIFY_WEBHOOK) {
       console.log(
-        "  Webhook allarme (acqua + soglie ambientali env_threshold) configurato"
+        "  Webhook allarme (acqua + soglie ambientali env_threshold) configurato",
       );
     }
     console.log("  POST /api/ingest/reading (payload legacy o LoRa-ready)");
     if (pgStore) {
-      console.log("  POST /api/ingest (webhook The Things Network · richiede DATABASE_URL)");
-      console.log("  REST  CRUD /api/admin/sensors (gestione anagrafica sensori)");
-      console.log("  REST  CRUD /api/admin/backups (backup on-demand e auto-scheduled)");
-      console.log("  REST  CRUD /api/admin/partitions (gestione partizioni PostgreSQL)");
+      console.log(
+        "  POST /api/ingest (webhook The Things Network · richiede DATABASE_URL)",
+      );
+      console.log(
+        "  REST  CRUD /api/admin/sensors (gestione anagrafica sensori)",
+      );
+      console.log(
+        "  REST  CRUD /api/admin/backups (backup on-demand e auto-scheduled)",
+      );
+      console.log(
+        "  REST  CRUD /api/admin/partitions (gestione partizioni PostgreSQL)",
+      );
       console.log("  REST  CRUD /api/admin/users (RBAC gestione utenti)");
       console.log("  GET /api/admin/audit (audit trail con filtri)");
       if (BACKUP_AUTO_ENABLED) {
-        console.log(`  [backup] Automatico ogni ${BACKUP_INTERVAL_MS / 3600000}h, retention ${process.env.BACKUP_RETENTION_DAYS || 7}giorni`);
+        console.log(
+          `  [backup] Automatico ogni ${BACKUP_INTERVAL_MS / 3600000}h, retention ${process.env.BACKUP_RETENTION_DAYS || 7}giorni`,
+        );
       }
       if (PARTITION_AUTO_MAINTENANCE) {
-        console.log(`  [partition] Manutenzione ogni ${PARTITION_MAINTENANCE_INTERVAL_MS / 3600000}h, keep ${PARTITION_MONTHS_KEEP}mesi`);
+        console.log(
+          `  [partition] Manutenzione ogni ${PARTITION_MAINTENANCE_INTERVAL_MS / 3600000}h, keep ${PARTITION_MONTHS_KEEP}mesi`,
+        );
       }
     }
     if (IS_RENDER) {
       console.log(
-        `  [mem] Buffer eventi di rete: ${EVENT_BUFFER_MAX} (NETWORK_EVENT_BUFFER_MAX=sostituibile)`
+        `  [mem] Buffer eventi di rete: ${EVENT_BUFFER_MAX} (NETWORK_EVENT_BUFFER_MAX=sostituibile)`,
       );
     }
     if (!INGEST_SECRET && !API_KEY) {
@@ -2531,12 +2911,30 @@ async function startHttpServer() {
       });
     }
     if (DISABLE_AUTO_TICK) {
-      console.log("  Simulazione random DISATTIVATA (DISABLE_AUTO_TICK=true) — solo ingest/manuale");
+      console.log(
+        "  Simulazione random DISATTIVATA (DISABLE_AUTO_TICK=true) — solo ingest/manuale",
+      );
+    }
+
+    // Avvia backup automatico se abilitato
+    if (BACKUP_AUTO_ENABLED && DATABASE_URL) {
+      const backupScheduler = backupManager.startScheduledBackup(BACKUP_INTERVAL_MS);
+      console.log(`  💾 Backup automatico: ogni ${BACKUP_INTERVAL_MS / 3600000}h`);
+      
+      // Cleanup in shutdown
+      process.on("SIGTERM", () => {
+        backupScheduler.stop();
+      });
+      process.on("SIGINT", () => {
+        backupScheduler.stop();
+      });
     }
 
     // Avvia monitoraggi Telegram Bot Intelligente (solo se esplicitamente abilitato)
     if (isTelegramConfigured() && TELEGRAM_AUTO_MONITOR) {
-      console.log("  🤖 Telegram Bot Intelligente attivo (monitoraggio auto abilitato):");
+      console.log(
+        "  🤖 Telegram Bot Intelligente attivo (monitoraggio auto abilitato):",
+      );
 
       // Monitoraggio batterie
       const batteryMonitor = startBatteryMonitoring(() => store);
@@ -2556,15 +2954,22 @@ async function startHttpServer() {
         networkMonitor.stop();
       });
     } else if (isTelegramConfigured()) {
-      console.log("  🤖 Telegram Bot: configurato ma monitoraggio DISATTIVATO (impostare TELEGRAM_AUTO_MONITOR=true per abilitare)");
+      console.log(
+        "  🤖 Telegram Bot: configurato ma monitoraggio DISATTIVATO (impostare TELEGRAM_AUTO_MONITOR=true per abilitare)",
+      );
     } else {
-      console.log("  🤖 Telegram Bot: non configurato (impostare TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID)");
+      console.log(
+        "  🤖 Telegram Bot: non configurato (impostare TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID)",
+      );
     }
   });
 }
 
 void startHttpServer().catch((err) => {
-  console.error("[fatal] avvio server:", err && err.message ? err.message : err);
+  console.error(
+    "[fatal] avvio server:",
+    err && err.message ? err.message : err,
+  );
   process.exit(1);
 });
 

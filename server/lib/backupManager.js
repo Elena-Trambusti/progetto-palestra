@@ -228,12 +228,46 @@ async function getDatabaseStats() {
   }
 }
 
+/**
+ * Avvia backup schedulato automatico
+ * @param {number} intervalMs - Intervallo in ms (default: 24h)
+ */
+function startScheduledBackup(intervalMs = 24 * 60 * 60 * 1000) {
+  console.log(`[backup] Scheduled backup attivo ogni ${intervalMs / 1000 / 60 / 60} ore`);
+  
+  // Primo backup dopo 1 minuto (startup)
+  setTimeout(async () => {
+    try {
+      console.log("[backup] Esecuzione backup startup...");
+      await createBackup();
+      await cleanupOldBackups();
+    } catch (err) {
+      console.error("[backup] Startup backup failed:", err.message);
+    }
+  }, 60000);
+
+  // Backup periodici
+  const intervalId = setInterval(async () => {
+    try {
+      console.log("[backup] Esecuzione backup schedulato...");
+      await createBackup();
+      await cleanupOldBackups();
+      console.log("[backup] Backup schedulato completato");
+    } catch (err) {
+      console.error("[backup] Scheduled backup failed:", err.message);
+    }
+  }, intervalMs);
+
+  return { stop: () => clearInterval(intervalId) };
+}
+
 module.exports = {
   createBackup,
   listBackups,
   cleanupOldBackups,
   verifyBackup,
   getDatabaseStats,
+  startScheduledBackup,
   BACKUP_DIR,
   RETENTION_DAYS,
 };

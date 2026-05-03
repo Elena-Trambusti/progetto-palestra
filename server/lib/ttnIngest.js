@@ -4,6 +4,7 @@
  * - Decodifica binaria in base al tipo sensore registrato nel DB.
  * - Gestione payload vuoto/corrotto e errori DB senza far terminare il processo.
  */
+const Joi = require("joi");
 const {
   normalizeDevEui,
   findSensorByDevEui,
@@ -13,6 +14,59 @@ const { maybeNotifyThresholdAlarm } = require("./telegram");
 const { analyzeWaterData } = require("./waterAnalytics");
 const { analyzeAirData } = require("./airAnalytics");
 const { analyzeMaintenanceTelemetry } = require("./maintenanceAnalytics");
+
+/**
+ * Schema Joi per validazione payload TTN
+ * Rifiuta payload malformati prima del processing
+ */
+const ttnIngestSchema = Joi.object({
+  end_device_ids: Joi.object({
+    dev_eui: Joi.string().hex().length(16).required(),
+    device_id: Joi.string().allow("").optional(),
+    application_ids: Joi.object().optional(),
+  }).optional(),
+  dev_eui: Joi.string().hex().length(16).optional(), // fallback
+  uplink_message: Joi.object({
+    decoded_payload: Joi.object({
+      temperatureC: Joi.number().min(-40).max(80).optional(),
+      temperature: Joi.number().min(-40).max(80).optional(),
+      temp: Joi.number().min(-40).max(80).optional(),
+      humidityPercent: Joi.number().min(0).max(100).optional(),
+      humidity: Joi.number().min(0).max(100).optional(),
+      rh: Joi.number().min(0).max(100).optional(),
+      co2Ppm: Joi.number().min(0).max(5000).optional(),
+      co2: Joi.number().min(0).max(5000).optional(),
+      vocIndex: Joi.number().min(0).max(500).optional(),
+      voc: Joi.number().min(0).max(500).optional(),
+      iaq: Joi.number().min(0).max(500).optional(),
+      lux: Joi.number().min(0).max(100000).optional(),
+      lightLux: Joi.number().min(0).max(100000).optional(),
+      levelPercent: Joi.number().min(0).max(100).optional(),
+      level: Joi.number().min(0).max(100).optional(),
+      flowLmin: Joi.number().min(0).max(1000).optional(),
+      flow: Joi.number().min(0).max(1000).optional(),
+      batteryPercent: Joi.number().min(0).max(100).optional(),
+      battery: Joi.number().min(0).max(100).optional(),
+      bat: Joi.number().min(0).max(100).optional(),
+      vbat: Joi.number().min(0).max(5).optional(),
+    }).optional(),
+    rx_metadata: Joi.array().items(
+      Joi.object({
+        rssi: Joi.number().min(-160).max(-1).optional(),
+        snr: Joi.number().min(-30).max(30).optional(),
+        gateway_id: Joi.string().optional(),
+      })
+    ).optional(),
+    rssi: Joi.number().min(-160).max(-1).optional(),
+    snr: Joi.number().min(-30).max(30).optional(),
+    frm_payload: Joi.string().base64().optional(),
+    payload_raw: Joi.string().base64().optional(),
+    f_port: Joi.number().integer().min(1).max(255).optional(),
+    f_cnt: Joi.number().integer().min(0).optional(),
+  }).optional(),
+  received_at: Joi.string().isoDate().optional(),
+  ingest_time: Joi.string().isoDate().optional(),
+}).required();
 
 /**
  * Mappatura dinamica sensori - LEGGE DA ENV oppure usa defaults
@@ -383,10 +437,47 @@ function databaseFailureResponse(err, phase) {
 }
 
 /**
+ * Valida payload TTN usando Joi
+ * @param {Object} body - Payload grezzo
+ * @returns {{valid: boolean, error?: string, details?: Array}}
+ */
+function validateTtnPayload(body) {
+  const { error } = ttnIngestSchema.validate(body, {
+    abortEarly: false,
+    stripUnknown: true,
+  });
+  if (error) {
+    return {
+      valid: false,
+      error: "validation_error",
+      details: error.details.map((d) => ({
+        field: d.path.join("."),
+        message: d.message,
+      })),
+    };
+  }
+  return { valid: true };
+}
+
+/**
  * Pipeline completa: valida dev_eui in anagrafica, decodifica, INSERT measurements.
  * Ritorna { ok, status, detail }; errori DB → dbError + logMessage (nessuna eccezione verso Express).
  */
 async function ingestTtnWebhook(body) {
+  // Validazione Joi strict
+  const validation = validateTtnPayload(body);
+  if (!validation.valid) {
+    return {
+      ok: false,
+      status: 400,
+      detail: {
+        error: "payload_validation_failed",
+        message: "Payload non valido",
+        validationErrors: validation.details,
+      },
+    };
+  }
+
   const { devEui, decoded, buf, rssi, snr, tsRaw, payloadMeta } = extractTtnFields(body);
   if (!devEui) {
     return { ok: false, status: 400, detail: { error: "dev_eui_missing" } };
@@ -615,4 +706,6 @@ module.exports = {
   frmPayloadToBuffer,
   parseIngestTimestampUtc,
   analyzeWaterPacket,
+  validateTtnPayload,
+  ttnIngestSchema,
 };
