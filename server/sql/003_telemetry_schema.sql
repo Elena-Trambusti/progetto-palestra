@@ -23,6 +23,22 @@ BEGIN
   ELSE
     ALTER TABLE measurements ADD COLUMN rssi INTEGER;
   END IF;
+
+  -- Assicura colonne ambientali richieste dall'ingest
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'measurements' AND column_name = 'co2') THEN
+    ALTER TABLE measurements ADD COLUMN co2 INTEGER;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'measurements' AND column_name = 'voc') THEN
+    ALTER TABLE measurements ADD COLUMN voc INTEGER;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'measurements' AND column_name = 'lux') THEN
+    ALTER TABLE measurements ADD COLUMN lux INTEGER;
+  END IF;
   
   -- Assicura sensor_type esista e sia VARCHAR(50)
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 

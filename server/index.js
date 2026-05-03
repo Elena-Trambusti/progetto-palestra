@@ -2192,6 +2192,9 @@ app.get("/api/admin/migrate", async (req, res) => {
       const fallbackStatements = [
         `ALTER TABLE IF EXISTS measurements ADD COLUMN IF NOT EXISTS battery_level DECIMAL(5,2)`,
         `ALTER TABLE IF EXISTS measurements ADD COLUMN IF NOT EXISTS rssi INTEGER`,
+        `ALTER TABLE IF EXISTS measurements ADD COLUMN IF NOT EXISTS co2 INTEGER`,
+        `ALTER TABLE IF EXISTS measurements ADD COLUMN IF NOT EXISTS voc INTEGER`,
+        `ALTER TABLE IF EXISTS measurements ADD COLUMN IF NOT EXISTS lux INTEGER`,
         `ALTER TABLE IF EXISTS measurements ADD COLUMN IF NOT EXISTS sensor_type VARCHAR(50)`,
         `CREATE INDEX IF NOT EXISTS idx_measurements_battery ON measurements (battery_level) WHERE battery_level IS NOT NULL`,
         `CREATE INDEX IF NOT EXISTS idx_measurements_rssi ON measurements (rssi) WHERE rssi IS NOT NULL`,
