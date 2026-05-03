@@ -11,6 +11,9 @@
  *   npm run test:full
  */
 
+// Carica variabili d'ambiente dal .env del server
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');

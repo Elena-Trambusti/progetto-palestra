@@ -10,6 +10,9 @@
  *   npm run test:alarms
  */
 
+// Carica variabili d'ambiente dal .env del server
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 const { checkSingleNodeBattery } = require('../lib/batteryAlerts');
 const { checkSingleNodeNetwork } = require('../lib/networkAlerts');
 const { isTelegramConfigured } = require('../lib/telegram');
