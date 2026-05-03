@@ -8,6 +8,9 @@
  *   npm run db:setup
  */
 
+// Carica variabili d'ambiente dal .env del server
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');

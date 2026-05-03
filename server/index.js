@@ -2110,6 +2110,64 @@ app.get("/api/admin/audit", limitApiRead, adminAuthLib.requireAdminAuth, async (
   }
 });
 
+/**
+ * Endpoint migrazione database - esegue SQL 003_telemetry_schema.sql
+ * Proteggi con ADMIN_KEY dall'env
+ * GET /api/admin/migrate?key=TUO_ADMIN_KEY
+ */
+app.get("/api/admin/migrate", async (req, res) => {
+  const adminKey = process.env.ADMIN_KEY || process.env.INGEST_SECRET;
+  const providedKey = req.query.key || req.headers['x-admin-key'];
+  
+  if (!adminKey || providedKey !== adminKey) {
+    return res.status(403).json({ error: "unauthorized", message: "Chiave admin richiesta" });
+  }
+  
+  if (!pgStore) {
+    return res.status(503).json({ error: "database_required", message: "PostgreSQL non disponibile" });
+  }
+  
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const sqlPath = path.join(__dirname, 'sql', '003_telemetry_schema.sql');
+    
+    if (!fs.existsSync(sqlPath)) {
+      return res.status(404).json({ error: "migration_not_found", path: sqlPath });
+    }
+    
+    const sql = fs.readFileSync(sqlPath, 'utf8');
+    
+    // Esegui migration
+    await pgStore.withClient(async (client) => {
+      await client.query(sql);
+    });
+    
+    logEvent("info", "migration_executed", { migration: "003_telemetry_schema" });
+    
+    res.json({
+      ok: true,
+      migration: "003_telemetry_schema",
+      message: "Migrazione telemetria completata",
+      executed_at: new Date().toISOString(),
+      changes: [
+        "Aggiunta colonna battery_level",
+        "Aggiunta colonna rssi", 
+        "Aggiunta colonna sensor_type",
+        "Creata tabella sensor_maintenance_status",
+        "Creati indici ottimizzati"
+      ]
+    });
+  } catch (err) {
+    logEvent("error", "migration_failed", { error: err?.message || String(err) });
+    res.status(500).json({
+      error: "migration_failed",
+      message: err?.message || "Errore esecuzione migrazione",
+      hint: "Verificare che il database sia accessibile e lo schema sia compatibile"
+    });
+  }
+});
+
 app.use((err, _req, res, next) => {
   if (err && err.message === "cors_origin_denied") {
     return res.status(403).json({ error: "cors_origin_denied" });
