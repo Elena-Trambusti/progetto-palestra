@@ -13,6 +13,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: "10000"
       - key: REQUIRE_AUTH
         value: "true"
       - key: AUTH_PASSWORD
@@ -21,9 +23,12 @@ services:
         generateValue: true
       - key: TRUST_PROXY
         value: "true"
-      # Stesso dominio dell'app: origine esatta del browser (HTTPS Render), es. https://palestra-app.onrender.com
-      - key: CORS_ORIGIN
+      - key: DATABASE_URL
         sync: false
+      - key: CORS_ORIGIN
+        value: "https://progetto-palestra.onrender.com"
+      - key: TELEGRAM_AUTO_MONITOR
+        value: "false"
       - key: DATA_DIR
         value: /var/data
     disks:
