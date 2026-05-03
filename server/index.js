@@ -12,6 +12,7 @@ const rateLimit = require("express-rate-limit");
 const cookieParser = require("cookie-parser");
 const { parse: parseCookie } = require("cookie");
 const { WebSocketServer } = require("ws");
+const { Pool } = require("pg");
 const history = require("./lib/history");
 const networkEventsStore = require("./lib/networkEvents");
 const {
@@ -53,21 +54,45 @@ const { startBatteryMonitoring } = require("./lib/batteryAlerts");
 const { startNetworkMonitoring } = require("./lib/networkAlerts");
 const { isTelegramConfigured } = require("./lib/telegram");
 
-const DATABASE_URL = (
-  process.env.DATABASE_URL ||
-  process.env.POSTGRES_URL ||
-  process.env.PG_URL ||
-  process.env.DB_URL ||
-  ""
-).trim();
+function maskDbUrl(url) {
+  const u = String(url || "").trim();
+  if (!u) return "NON IMPOSTATA";
+  return u.replace(/:([^:@]+)@/, ":***@");
+}
 
-// Se trovata in variabile alternativa, la imposta come DATABASE_URL per postgresStore
-if (DATABASE_URL && !process.env.DATABASE_URL) {
+function buildDatabaseUrlFromParts() {
+  const user = String(process.env.DB_USER || process.env.PGUSER || "").trim();
+  const pass = String(process.env.DB_PASS || process.env.PGPASSWORD || "").trim();
+  const host = String(process.env.DB_HOST || process.env.PGHOST || "").trim();
+  const port = String(process.env.DB_PORT || process.env.PGPORT || "5432").trim();
+  const name = String(process.env.DB_NAME || process.env.PGDATABASE || "").trim();
+  if (!user || !pass || !host || !name) return "";
+  return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}/${name}`;
+}
+
+function resolveDatabaseUrl() {
+  const candidates = [
+    process.env.DATABASE_URL,
+    process.env.DATABASE_INTERNAL_URL,
+    process.env.POSTGRES_URL,
+    process.env.PG_URL,
+    process.env.DB_URL,
+  ];
+  for (const c of candidates) {
+    const v = String(c || "").trim();
+    if (v) return v;
+  }
+  return buildDatabaseUrlFromParts();
+}
+
+const DATABASE_URL = resolveDatabaseUrl();
+
+if (DATABASE_URL) {
   process.env.DATABASE_URL = DATABASE_URL;
 }
 
 const pgStore = DATABASE_URL ? require("./lib/postgresStore") : null;
-console.log(`[startup] DATABASE_URL: ${DATABASE_URL ? "✓ configurata (" + DATABASE_URL.replace(/:([^:@]+)@/, ":***@") + ")" : "✗ NON TROVATA - PostgreSQL disabilitato"}`);
+console.log(`[startup] DATABASE_URL: ${DATABASE_URL ? "✓ configurata (" + maskDbUrl(DATABASE_URL) + ")" : "✗ NON TROVATA - PostgreSQL disabilitato"}`);
 
 const PORT = Number(process.env.PORT) || 4000;
 const API_KEY = (process.env.API_KEY || "").trim();
@@ -2129,21 +2154,28 @@ app.get("/api/admin/audit", limitApiRead, adminAuthLib.requireAdminAuth, async (
  * GET /api/admin/migrate?key=TUO_ADMIN_KEY
  */
 app.get("/api/admin/dbcheck", (req, res) => {
-  const url = process.env.DATABASE_URL || "";
+  const resolvedUrl = resolveDatabaseUrl();
   res.json({
-    database_url_set: url.length > 0,
-    database_url_preview: url ? url.replace(/:([^:@]+)@/, ":***@") : "NON IMPOSTATA",
+    database_url_set: resolvedUrl.length > 0,
+    database_url_preview: maskDbUrl(resolvedUrl),
     pgstore_loaded: !!pgStore,
+    db_env_presence: {
+      DATABASE_URL: Boolean(String(process.env.DATABASE_URL || "").trim()),
+      DATABASE_INTERNAL_URL: Boolean(String(process.env.DATABASE_INTERNAL_URL || "").trim()),
+      POSTGRES_URL: Boolean(String(process.env.POSTGRES_URL || "").trim()),
+      PG_URL: Boolean(String(process.env.PG_URL || "").trim()),
+      DB_URL: Boolean(String(process.env.DB_URL || "").trim()),
+      DB_HOST: Boolean(String(process.env.DB_HOST || "").trim()),
+      DB_NAME: Boolean(String(process.env.DB_NAME || "").trim()),
+      DB_USER: Boolean(String(process.env.DB_USER || "").trim()),
+      DB_PASS: Boolean(String(process.env.DB_PASS || "").trim()),
+    },
     node_env: process.env.NODE_ENV,
     port: process.env.PORT,
   });
 });
 
 app.get("/api/admin/migrate", async (req, res) => {
-  if (!pgStore) {
-    return res.status(503).json({ error: "database_required", message: "PostgreSQL non disponibile" });
-  }
-  
   try {
     const fs = require('fs');
     const path = require('path');
@@ -2154,11 +2186,36 @@ app.get("/api/admin/migrate", async (req, res) => {
     }
     
     const sql = fs.readFileSync(sqlPath, 'utf8');
-    
-    // Esegui migration
-    await pgStore.withClient(async (client) => {
-      await client.query(sql);
-    });
+
+    if (pgStore) {
+      await pgStore.withClient(async (client) => {
+        await client.query(sql);
+      });
+    } else {
+      const resolvedUrl = resolveDatabaseUrl();
+      if (!resolvedUrl) {
+        return res.status(503).json({
+          error: "database_required",
+          message: "PostgreSQL non disponibile",
+          hint: "DATABASE_URL non presente nel runtime del Web Service Render",
+        });
+      }
+      const isRemote = resolvedUrl.includes(".render.com") || !resolvedUrl.includes("localhost");
+      const tempPool = new Pool({
+        connectionString: resolvedUrl,
+        ssl: isRemote ? { rejectUnauthorized: false } : false,
+      });
+      try {
+        const c = await tempPool.connect();
+        try {
+          await c.query(sql);
+        } finally {
+          c.release();
+        }
+      } finally {
+        await tempPool.end();
+      }
+    }
     
     logEvent("info", "migration_executed", { migration: "003_telemetry_schema" });
     
