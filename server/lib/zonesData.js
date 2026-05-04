@@ -4,140 +4,98 @@
  * - nodes = nodo remoto installato sul campo
  * - gateways = ricevitore centrale LoRa
  */
-const GATEWAYS = [
+let GATEWAYS = [
   {
     id: "gw-livorno-01",
     name: "Gateway LoRa centrale",
-    floor: "T",
+    floor: "2",
     mapX: 50,
     mapY: 50,
-    location: "Tetto / centrale tecnica",
+    location: "Tetto",
     uplink: "LoRa",
     backhaul: "Ethernet",
   },
 ];
 
-const ZONES = [
+let ZONES = [
   {
-    id: "hub-centrale",
-    name: "Centrale tecnica · Gateway / UPS",
-    floor: "T",
+    id: "vano-idrico",
+    name: "Vano Idrico",
+    floor: "0",
+    mapX: 20,
+    mapY: 20,
+    kind: "water",
+    primaryNodeId: "node-water-01",
+  },
+  {
+    id: "palestra",
+    name: "Palestra",
+    floor: "1",
+    mapX: 50,
+    mapY: 50,
+    kind: "environment",
+    primaryNodeId: "node-env-01",
+  },
+  {
+    id: "controsoffitti",
+    name: "Controsoffitti Palestra",
+    floor: "1",
+    mapX: 50,
+    mapY: 20,
+    kind: "technical",
+    primaryNodeId: "node-tech-01",
+  },
+  {
+    id: "tetto",
+    name: "Tetto",
+    floor: "2",
     mapX: 50,
     mapY: 50,
     kind: "gateway",
     primaryNodeId: "gw-livorno-01",
   },
-  {
-    id: "serbatoio-idrico",
-    name: "Serbatoio tecnico · livello / temperatura",
-    floor: "-1",
-    mapX: 26,
-    mapY: 44,
-    kind: "water",
-    primaryNodeId: "node-water-01",
-  },
-  {
-    id: "spogliatoi-ambientale",
-    name: "Spogliatoi · temperatura / umidita / luce",
-    floor: "-1",
-    mapX: 71,
-    mapY: 39,
-    kind: "environment",
-    primaryNodeId: "node-env-01",
-  },
-  {
-    id: "linea-flusso",
-    name: "Linea idrica · portata / pressione",
-    floor: "0",
-    mapX: 46,
-    mapY: 63,
-    kind: "flow",
-    primaryNodeId: "node-flow-01",
-  },
-  {
-    id: "sala-pesi-aria",
-    name: "Sala pesi · qualita aria",
-    floor: "1",
-    mapX: 24,
-    mapY: 56,
-    kind: "air-quality",
-    primaryNodeId: "node-air-01",
-  },
-  {
-    id: "cardio-luce",
-    name: "Cardio · luce / temperatura",
-    floor: "1",
-    mapX: 78,
-    mapY: 48,
-    kind: "light-climate",
-    primaryNodeId: "node-light-01",
-  },
 ];
 
-const NODES = [
+let NODES = [
   {
     id: "node-water-01",
-    label: "Nodo serbatoio",
-    zoneId: "serbatoio-idrico",
-    gatewayId: "gw-livorno-01",
-    floor: "-1",
-    mapX: 26,
-    mapY: 44,
-    hardware: "ESP32 + LoRa",
-    sensors: ["levelPercent", "temperatureC"],
-  },
-  {
-    id: "node-env-01",
-    label: "Nodo spogliatoi",
-    zoneId: "spogliatoi-ambientale",
-    gatewayId: "gw-livorno-01",
-    floor: "-1",
-    mapX: 71,
-    mapY: 39,
-    hardware: "STM32 + LoRa",
-    sensors: ["temperatureC", "humidityPercent", "lightLux"],
-  },
-  {
-    id: "node-flow-01",
-    label: "Nodo flusso linea",
-    zoneId: "linea-flusso",
+    label: "Nodo Vano Idrico",
+    zoneId: "vano-idrico",
     gatewayId: "gw-livorno-01",
     floor: "0",
-    mapX: 46,
-    mapY: 63,
+    mapX: 20,
+    mapY: 20,
     hardware: "ESP32 + LoRa",
     sensors: ["flowLmin", "levelPercent", "temperatureC"],
   },
   {
-    id: "node-air-01",
-    label: "Nodo qualita aria",
-    zoneId: "sala-pesi-aria",
+    id: "node-env-01",
+    label: "Nodo Palestra",
+    zoneId: "palestra",
     gatewayId: "gw-livorno-01",
     floor: "1",
-    mapX: 24,
-    mapY: 56,
-    hardware: "ESP32 + LoRa",
-    sensors: ["temperatureC", "humidityPercent", "co2Ppm", "vocIndex"],
+    mapX: 50,
+    mapY: 50,
+    hardware: "STM32 + LoRa",
+    sensors: ["temperatureC", "co2Ppm", "vocIndex"],
   },
   {
-    id: "node-light-01",
-    label: "Nodo cardio",
-    zoneId: "cardio-luce",
+    id: "node-tech-01",
+    label: "Nodo Controsoffitti",
+    zoneId: "controsoffitti",
     gatewayId: "gw-livorno-01",
     floor: "1",
-    mapX: 78,
-    mapY: 48,
-    hardware: "STM32 + LoRa",
-    sensors: ["temperatureC", "lightLux", "humidityPercent"],
+    mapX: 50,
+    mapY: 20,
+    hardware: "ESP32 + LoRa",
+    sensors: ["water_level_mm", "battery", "rssi"],
   },
 ];
 
-const FLOORS = [
-  { id: "T", label: "Tetto / centrale tecnica", planSlug: "t" },
-  { id: "-1", label: "Piano -1", planSlug: "m1" },
-  { id: "0", label: "Piano terra", planSlug: "0" },
-  { id: "1", label: "Piano 1", planSlug: "1" },
-  { id: "2", label: "Piano 2", planSlug: "2" },
+let FLOORS = [
+  { id: "0", label: "Piano 0 (Vano Idrico)", planSlug: "0" },
+  { id: "1", label: "Piano 1 (Palestra)", planSlug: "1" },
+  { id: "2", label: "Piano 2 (Tetto)", planSlug: "2" },
 ];
 
 function planPathForFloor(floorId) {
@@ -162,14 +120,23 @@ function findGateway(gatewayId) {
   return GATEWAYS.find((g) => g.id === gatewayId) || null;
 }
 
+function updateTopology(data) {
+  if (data.gateways) GATEWAYS = data.gateways;
+  if (data.zones) ZONES = data.zones;
+  if (data.nodes) NODES = data.nodes;
+  if (data.floors) FLOORS = data.floors;
+  console.log(`[zonesData] Topology aggiornata dinamicamente: ${ZONES.length} zone, ${NODES.length} nodi`);
+}
+
 module.exports = {
-  GATEWAYS,
-  ZONES,
-  NODES,
-  FLOORS,
+  get GATEWAYS() { return GATEWAYS; },
+  get ZONES() { return ZONES; },
+  get NODES() { return NODES; },
+  get FLOORS() { return FLOORS; },
   planPathForFloor,
   findZone,
   findNode,
   findNodeByZone,
   findGateway,
+  updateTopology,
 };

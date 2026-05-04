@@ -2,7 +2,7 @@ require('dotenv').config({path: '.env'});
 const { analyzeWaterData } = require('./server/lib/waterAnalytics');
 const { analyzeAirData } = require('./server/lib/airAnalytics');
 
-console.log('🧪 TEST MULTI-SENSORE - "SESTO SENSO" EVOLUTO');
+console.log('🧪 TEST MULTI-SENSORE - "MISURATORE DATI LORA" EVOLUTO');
 console.log('Simulazione dati da Nodo Acqua + Nodo Aria\n');
 
 // Funzione per simulare invio dati verso /api/ingest
@@ -139,7 +139,7 @@ async function testSimultaneous() {
 
 // Funzione principale di test
 async function runMultiSensorTest() {
-  console.log('🚀 Avvio test multi-sensore "Sesto Senso" evoluto...\n');
+  console.log('🚀 Avvio test multi-sensore "Misuratore dati LORA" evoluto...\n');
   
   try {
     await testWaterNormal();

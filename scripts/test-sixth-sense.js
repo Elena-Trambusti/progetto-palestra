@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Test "Sesto Senso" - Gestione Intelligente Acqua
+ * Test "Misuratore dati LORA" - Gestione Intelligente Acqua
  * Script per testare perdite notturne, manutenzione filtri e allarmi
  */
 
 require('dotenv').config();
 const { analyzeWaterData } = require('../server/lib/waterAnalytics');
 
-console.log('🌊 TEST "SESTO SENSO" - GESTIONE INTELLIGENTE ACQUA');
+console.log('🌊 TEST "MISURATORE DATI LORA" - GESTIONE INTELLIGENTE ACQUA');
 console.log('=' .repeat(60));
 
 async function runTests() {
@@ -115,7 +115,7 @@ async function runTests() {
 
 // Esegui i test
 runTests().then(() => {
-  console.log('🎉 Test "Sesto Senso" completati con successo!');
+  console.log('🎉 Test "Misuratore dati LORA" completati con successo!');
 }).catch(error => {
   console.error('💥 Test falliti:', error);
   process.exit(1);

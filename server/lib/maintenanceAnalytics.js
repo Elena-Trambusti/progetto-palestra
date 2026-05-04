@@ -1,5 +1,5 @@
 /**
- * Sesto Senso Manutenzione - Analisi telemetria sensori
+ * Misuratore dati LORA Manutenzione - Analisi telemetria sensori
  * Monitora stato batteria e segnale LoRa, genera alert manutenzione preventiva
  */
 

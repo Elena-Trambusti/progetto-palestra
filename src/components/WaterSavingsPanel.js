@@ -102,7 +102,7 @@ export default function WaterSavingsPanel() {
         <Droplets className="water-savings__icon" aria-hidden />
         <div>
           <h2 id="water-savings-heading" className="water-savings__title">
-            "Sesto Senso" - Risparmio Idrico
+            "Misuratore dati LORA" - Risparmio Idrico
           </h2>
           <p className="water-savings__hint mono">
             Monitoraggio intelligente consumi e prevenzione sprechi

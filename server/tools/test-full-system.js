@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Test Sistema Completo - Sesto Senso Manutenzione
+ * Test Sistema Completo - Misuratore dati LORA Manutenzione
  * Simula invio pacchetti TTN per testare telemetria e notifiche
  * 
  * Uso:
@@ -278,7 +278,7 @@ async function runCustomTest() {
 async function runAllScenarios() {
   console.log(`
 ╔══════════════════════════════════════════════════════════╗
-║     SESTO SENSO - Test Sistema Manutenzione Completo      ║
+║     MISURATORE DATI LORA - Test Sistema Manutenzione Completo      ║
 ╚══════════════════════════════════════════════════════════╝
 `);
   console.log(`API Target: ${API_BASE}`);

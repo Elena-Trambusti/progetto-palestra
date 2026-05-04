@@ -429,7 +429,7 @@ async function notifyInfo({ title, message, nodeId, metrics }) {
 }
 
 /**
- * Invia alert manutenzione (Sesto Senso Manutenzione)
+ * Invia alert manutenzione (Misuratore dati LORA Manutenzione)
  * Formattazione diversa dagli allarmi critici - più soft ma evidente
  * @param {Object} params
  * @param {string} params.type - tipo da MAINTENANCE_TYPES
@@ -464,7 +464,7 @@ async function sendMaintenanceAlert({
   }
 
   // Costruisci messaggio con emoji prominenti
-  const header = `${style.icon} <b>SESTO SENSO MANUTENZIONE</b> ${style.icon}`;
+  const header = `${style.icon} <b>MISURATORE DATI LORA MANUTENZIONE</b> ${style.icon}`;
   const separator = '━'.repeat(30);
   
   const valueText = value != null 

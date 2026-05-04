@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Test Dashboard "Sesto Senso" - Risparmio Idrico
+ * Test Dashboard "Misuratore dati LORA" - Risparmio Idrico
  * Verifica API endpoint e integrazione frontend
  */
 
 require('dotenv').config();
 
-console.log('🌊 TEST DASHBOARD "SESTO SENSO" - RISPARMIO IDRICO');
+console.log('🌊 TEST DASHBOARD "MISURATORE DATI LORA" - RISPARMIO IDRICO');
 console.log('='.repeat(60));
 
 async function testApiEndpoint() {
@@ -179,7 +179,7 @@ async function runAllTests() {
   
   if (allPassed) {
     console.log('\n🎉 TUTTI I TEST PASSATI!');
-    console.log('✅ Dashboard "Sesto Senso" pronta per l\'uso');
+    console.log('✅ Dashboard "Misuratore dati LORA" pronta per l\'uso');
     console.log('\n🚀 Per avviare la dashboard completa:');
     console.log('   npm run demo');
     console.log('\n📱 Il pannello risparmio idrico apparirà nella dashboard principale');

@@ -1,5 +1,5 @@
 /**
- * "Sesto Senso" - API Servizi Risparmio Idrico
+ * "Misuratore dati LORA" - API Servizi Risparmio Idrico
  * Recupera e processa dati per dashboard risparmio acqua
  */
 

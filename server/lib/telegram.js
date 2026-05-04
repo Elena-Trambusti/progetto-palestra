@@ -78,6 +78,57 @@ async function sendTelegramMessage(text) {
 }
 
 /**
+ * Invia un documento Telegram (es. Report PDF).
+ * @param {Buffer} buffer - Il contenuto del file
+ * @param {string} filename - Nome del file
+ * @param {string} caption - Didascalia del messaggio
+ */
+async function sendTelegramDocument(buffer, filename, caption = "") {
+  const token = getEnvToken();
+  const chatId = getEnvChatId();
+  if (!token || !chatId) {
+    console.log("[telegram] Invio documento saltato: configurazione mancante.");
+    return { ok: false, skipped: true };
+  }
+
+  const url = `https://api.telegram.org/bot${token}/sendDocument`;
+
+  try {
+    const formData = new FormData();
+    formData.append("chat_id", chatId);
+    formData.append("caption", caption);
+    formData.append("parse_mode", "HTML");
+    
+    // In node 18+, FormData accetta Blob/File, passiamo un Blob
+    const blob = new Blob([buffer], { type: 'application/pdf' });
+    formData.append("document", blob, filename);
+
+    const res = await fetch(url, {
+      method: "POST",
+      body: formData,
+    });
+
+    let data = {};
+    try {
+      data = await res.json();
+    } catch {
+      data = {};
+    }
+
+    if (!res.ok) {
+      console.warn("[telegram] Risposta API non OK per sendDocument:", res.status, data);
+      return { ok: false };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    console.warn("[telegram] Errore durante l'invio documento:", msg);
+    return { ok: false };
+  }
+}
+
+/**
  * Dopo una nuova misura: se il valore viola min_threshold / max_threshold del sensore,
  * invia un messaggio Telegram (se configurato).
  *
@@ -152,6 +203,7 @@ function formatThreshold(t) {
 
 module.exports = {
   sendTelegramMessage,
+  sendTelegramDocument,
   maybeNotifyThresholdAlarm,
   isTelegramConfigured,
 };

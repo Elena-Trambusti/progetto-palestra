@@ -101,7 +101,7 @@ async function ensureSchema(client) {
       sensor_type VARCHAR(32),
       rssi DOUBLE PRECISION,
       snr DOUBLE PRECISION,
-      battery DOUBLE PRECISION,
+      battery_level DOUBLE PRECISION,
       timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -114,6 +114,57 @@ async function ensureSchema(client) {
   await client.query(
     `CREATE INDEX IF NOT EXISTS idx_sensors_location ON sensors (location);`,
   );
+  
+  // -- Modularity 100%: Dynamic Topology --
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS floors (
+      id VARCHAR(32) PRIMARY KEY,
+      label VARCHAR(128) NOT NULL,
+      plan_slug VARCHAR(128) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS gateways (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(128) NOT NULL,
+      floor_id VARCHAR(32) REFERENCES floors(id) ON DELETE SET NULL,
+      map_x DOUBLE PRECISION,
+      map_y DOUBLE PRECISION,
+      location VARCHAR(128),
+      uplink VARCHAR(64),
+      backhaul VARCHAR(64),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS zones (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(128) NOT NULL,
+      floor_id VARCHAR(32) REFERENCES floors(id) ON DELETE SET NULL,
+      map_x DOUBLE PRECISION,
+      map_y DOUBLE PRECISION,
+      kind VARCHAR(64),
+      primary_node_id VARCHAR(64),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  
+  // Add topology columns to sensors without failing if they already exist
+  const addCols = `
+    ALTER TABLE sensors ADD COLUMN IF NOT EXISTS zone_id VARCHAR(64) REFERENCES zones(id) ON DELETE SET NULL;
+    ALTER TABLE sensors ADD COLUMN IF NOT EXISTS gateway_id VARCHAR(64) REFERENCES gateways(id) ON DELETE SET NULL;
+    ALTER TABLE sensors ADD COLUMN IF NOT EXISTS floor_id VARCHAR(32) REFERENCES floors(id) ON DELETE SET NULL;
+    ALTER TABLE sensors ADD COLUMN IF NOT EXISTS map_x DOUBLE PRECISION;
+    ALTER TABLE sensors ADD COLUMN IF NOT EXISTS map_y DOUBLE PRECISION;
+    ALTER TABLE sensors ADD COLUMN IF NOT EXISTS hardware VARCHAR(128);
+    ALTER TABLE sensors ADD COLUMN IF NOT EXISTS sensor_list JSONB DEFAULT '[]'::jsonb;
+  `;
+  try {
+    await client.query(addCols);
+  } catch(e) {
+    console.error("[postgresStore] Errore aggiunta colonne topologia:", e);
+  }
 }
 
 async function withClient(fn) {
@@ -389,7 +440,7 @@ async function fetchLatestMeasurements(sensorIds, client = null) {
          value,
          rssi,
          snr,
-         battery,
+         battery_level AS battery,
          timestamp
        FROM measurements
        WHERE sensor_id = ANY($1::int[])
@@ -495,7 +546,7 @@ async function historySamplesForLocation(location, limit, range) {
               s.dev_eui AS "devEui",
               s.min_threshold AS "minThreshold",
               s.max_threshold AS "maxThreshold",
-              m.rssi, m.snr, m.battery
+              m.rssi, m.snr, m.battery_level AS battery
        FROM measurements m
        JOIN sensors s ON s.id = m.sensor_id
        WHERE s.location = $1 ${whereTime}
@@ -547,7 +598,7 @@ async function csvRowsForLocation(location, cap, range) {
     params.push(Math.min(50_000, Math.max(50, cap)));
     const limIdx = params.length;
     const r = await c.query(
-      `SELECT m.timestamp, m.value, m.rssi, m.snr, m.battery,
+      `SELECT m.timestamp, m.value, m.rssi, m.snr, m.battery_level AS battery,
               s.dev_eui, s.name, s.location, s.type
        FROM measurements m
        JOIN sensors s ON s.id = m.sensor_id
@@ -1019,4 +1070,5 @@ module.exports = {
   incrementTotalLiters,
   getWaterThresholds,
   resetTotalLiters,
+  fetchTopology,
 };

@@ -1,5 +1,5 @@
 /**
- * "Sesto Senso Aria" - Analytics Intelligente Qualità Aria
+ * "Misuratore dati LORA Aria" - Analytics Intelligente Qualità Aria
  * Analisi predittiva per qualità aria, illuminazione e comfort ambientale
  */
 
@@ -23,24 +23,28 @@ const BUSINESS_HOURS_END = 22; // 22:00
  * @returns {Promise<Object>} Risultato analisi con alert e metriche
  */
 async function analyzeAirData(params) {
-  const { nodeId, co2, voc, lux, timestamp } = params;
+  const { nodeId, co2, voc, lux, timestamp, maxThreshold } = params;
   const alerts = [];
   const metrics = { co2, voc, lux };
   const analysisTime = new Date(timestamp || Date.now());
   const currentHour = analysisTime.getHours();
   
-  console.log(`[airAnalytics] Analisi dati aria per ${nodeId}: CO2=${co2}ppm, VOC=${voc}, Lux=${lux}`);
+  // Utilizza la soglia specifica del nodo (zona) se presente, altrimenti il default
+  const criticalCo2Threshold = maxThreshold && maxThreshold > 0 ? maxThreshold : CO2_CRITICAL_THRESHOLD;
+  const warningCo2Threshold = Math.round(criticalCo2Threshold * 0.75); // Avviso al 75% della soglia critica
+  
+  console.log(`[airAnalytics] Analisi dati aria per ${nodeId}: CO2=${co2}ppm, VOC=${voc}, Lux=${lux} (Soglia CO2: ${criticalCo2Threshold})`);
 
   // Analisi CO2 - Allarme Critico
-  if (co2 !== null && co2 > CO2_CRITICAL_THRESHOLD) {
+  if (co2 !== null && co2 > criticalCo2Threshold) {
     const co2Alert = {
       severity: 'critical',
       type: 'co2_critical',
-      title: 'Aria Viziata - Sesto Senso',
+      title: 'Aria Viziata - Misuratore dati LORA',
       message: `⚠️ Aria viziata! Livello CO2 a ${co2} ppm. Aprire finestre immediatamente.`,
       nodeId,
       timestamp: analysisTime.toISOString(),
-      metrics: { co2, threshold: CO2_CRITICAL_THRESHOLD }
+      metrics: { co2, threshold: criticalCo2Threshold }
     };
     
     alerts.push(co2Alert);
@@ -54,7 +58,7 @@ async function analyzeAirData(params) {
     });
   }
   // Analisi CO2 - Avviso
-  else if (co2 !== null && co2 > CO2_WARNING_THRESHOLD) {
+  else if (co2 !== null && co2 > warningCo2Threshold) {
     const co2Warning = {
       severity: 'info',
       type: 'co2_warning',
@@ -62,7 +66,7 @@ async function analyzeAirData(params) {
       message: `📢 Affollamento in aumento. Si consiglia ricambio aria. CO2: ${co2} ppm`,
       nodeId,
       timestamp: analysisTime.toISOString(),
-      metrics: { co2, threshold: CO2_WARNING_THRESHOLD }
+      metrics: { co2, threshold: warningCo2Threshold }
     };
     
     alerts.push(co2Warning);

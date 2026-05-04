@@ -1,7 +1,7 @@
 require('dotenv').config({path: '.env'});
 const { notifyCriticalAlarm } = require('./server/lib/telegramNotifier');
 
-console.log('🚨 TEST PERDITA NOTTURNA - SESTO SENSO');
+console.log('🚨 TEST PERDITA NOTTURNA - MISURATORE DATI LORA');
 console.log('Simulazione diretta allarme perdita notturna...');
 
 // Simulazione manuale dell'allarme di perdita notturna
@@ -40,7 +40,7 @@ if (isNightTime && isAnomalousFlow) {
   console.log(`\n📱 Invio notifica Telegram...`);
   
   notifyCriticalAlarm({
-    title: "PERDITA NOTTURNA - Sesto Senso",
+    title: "PERDITA NOTTURNA - Misuratore dati LORA",
     message: alertMessage,
     nodeId: "node-flow-01",
     estimatedWaste: estimatedWaste

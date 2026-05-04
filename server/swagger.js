@@ -8,7 +8,7 @@ const options = {
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "Sesto Senso Dashboard API",
+      title: "Misuratore dati LORA Dashboard API",
       version: "1.0.0",
       description: `API per gestione sensori IoT in palestra.
         

@@ -24,7 +24,7 @@ export default function Header({
         <div className="header__title-wrap">
           <Activity className="header__icon" aria-hidden />
           <h1 className="header__title mono">
-            CENTRALE SUPERVISIONE IOT
+            MISURATORE DATI LORA
           </h1>
         </div>
         <div className="header__badges">

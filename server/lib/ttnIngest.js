@@ -46,6 +46,7 @@ const ttnIngestSchema = Joi.object({
       flowLmin: Joi.number().min(0).max(1000).optional(),
       flow: Joi.number().min(0).max(1000).optional(),
       batteryPercent: Joi.number().min(0).max(100).optional(),
+      battery_level: Joi.number().min(0).max(100).optional(),
       battery: Joi.number().min(0).max(100).optional(),
       bat: Joi.number().min(0).max(100).optional(),
       vbat: Joi.number().min(0).max(5).optional(),
@@ -131,15 +132,23 @@ const SENSOR_MAPPINGS = loadSensorMappings();
 
 /**
  * Estrae i campi specifici per tipo di sensore dal payload
- * Supporta mappature dinamiche e fallback generico
+ * Utilizza prima il tipo dal DB, poi la mappatura dinamica e fallback generico
  */
-function extractSensorData(deviceId, payload) {
-  // Ricarica mappature (per hot-reload in dev)
+function extractSensorData(deviceId, payload, dbSensor = null) {
+  // 1. Priorità massima: usa il tipo configurato nel Database
+  if (dbSensor && dbSensor.type) {
+    return {
+      type: dbSensor.type,
+      data: payload,
+      sensorType: dbSensor.type
+    };
+  }
+
+  // 2. Ricarica mappature env/defaults (per hot-reload in dev)
   const mappings = process.env.NODE_ENV === 'development' ? loadSensorMappings() : SENSOR_MAPPINGS;
-  
   const mapping = mappings[deviceId];
   
-  // Se non c'è mappatura specifica, prova inferenza dal deviceId
+  // 3. Fallback: Se non c'è mappatura, prova inferenza dal deviceId
   if (!mapping) {
     // Pattern matching per tipo da nome device
     const deviceLower = String(deviceId).toLowerCase();
@@ -338,7 +347,7 @@ function pickDecodedNumeric(decoded) {
 function pickBatteryDecoded(decoded) {
   if (!decoded || typeof decoded !== "object") return null;
   const v =
-    decoded.batteryPercent ?? decoded.battery ?? decoded.bat ?? decoded.vbat;
+    decoded.battery_level ?? decoded.batteryPercent ?? decoded.battery ?? decoded.bat ?? decoded.vbat;
   if (v == null) return null;
   if (!Number.isFinite(Number(v))) return null;
   return Math.min(100, Math.max(0, Number(v)));
@@ -564,8 +573,8 @@ async function ingestTtnWebhook(body) {
   const radio = sanitizeRadio(rssi, snr);
   const tsUtc = parseIngestTimestampUtc(tsRaw);
 
-  // Estrai dati specifici per tipo di sensore
-  const sensorInfo = extractSensorData(devEui, decoded);
+  // Estrai dati specifici per tipo di sensore (usando il tipo dal DB)
+  const sensorInfo = extractSensorData(devEui, decoded, sensor);
   
   // Prepara campi specifici per insertMeasurement (schema telemetria universale)
   const measurementData = {
@@ -597,21 +606,21 @@ async function ingestTtnWebhook(body) {
     console.warn("[telegram]", err && err.message ? err.message : err);
   });
 
-  // "Sesto Senso" - Analisi intelligente per nodi acqua
+  // "Misuratore dati LORA" - Analisi intelligente per nodi acqua
   if (sensorInfo.type === 'water') {
     void analyzeWaterPacket(sensor, devEui, decoded, tsUtc).catch((err) => {
       console.warn("[waterAnalytics]", err && err.message ? err.message : err);
     });
   }
   
-  // "Sesto Senso Aria" - Analisi intelligente per nodi aria
+  // "Misuratore dati LORA Aria" - Analisi intelligente per nodi aria
   if (sensorInfo.type === 'air') {
     void analyzeAirPacket(sensor, devEui, sensorInfo.data, tsUtc).catch((err) => {
       console.warn("[airAnalytics]", err && err.message ? err.message : err);
     });
   }
   
-  // "Sesto Senso Manutenzione" - Analisi telemetria batteria e segnale
+  // "Misuratore dati LORA Manutenzione" - Analisi telemetria batteria e segnale
   void analyzeMaintenanceTelemetry({
     sensorId: sensor.id,
     devEui,
@@ -638,7 +647,7 @@ async function ingestTtnWebhook(body) {
 }
 
 /**
- * Analizza pacchetto dati acqua con "Sesto Senso"
+ * Analizza pacchetto dati acqua con "Misuratore dati LORA"
  */
 async function analyzeWaterPacket(sensor, devEui, decoded, timestamp) {
   try {
@@ -674,7 +683,7 @@ async function analyzeWaterPacket(sensor, devEui, decoded, timestamp) {
 }
 
 /**
- * Analizza pacchetto dati aria con "Sesto Senso Aria"
+ * Analizza pacchetto dati aria con "Misuratore dati LORA Aria"
  */
 async function analyzeAirPacket(sensor, devEui, airData, timestamp) {
   try {
@@ -686,7 +695,8 @@ async function analyzeAirPacket(sensor, devEui, airData, timestamp) {
       co2: airData.co2Ppm || null,
       voc: airData.vocIndex || null,
       lux: airData.lux || null,
-      timestamp
+      timestamp,
+      maxThreshold: sensor.max_threshold || null
     });
 
     if (analysis.alerts.length > 0) {

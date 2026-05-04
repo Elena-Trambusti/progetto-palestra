@@ -1,201 +1,73 @@
 /**
  * Validazione rigorosa per payload sensori e API input
  */
+const Joi = require('joi');
+const { ZONES } = require('./zonesData');
 
-/**
- * Schema validazione per reading payload
- */
-const READING_SCHEMA = {
-  nodeId: { type: 'string', required: true, minLength: 3, maxLength: 50, pattern: /^[a-zA-Z0-9\-_]+$/ },
-  zoneId: { type: 'string', required: true, minLength: 3, maxLength: 50, pattern: /^[a-zA-Z0-9\-_]+$/ },
-  gatewayId: { type: 'string', required: true, minLength: 3, maxLength: 50, pattern: /^[a-zA-Z0-9\-_]+$/ },
-  timestamp: { type: 'string', required: false, format: 'iso8601' }, // Optional per legacy
-  source: { type: 'string', required: false, enum: ['lora-gateway', 'ttn-webhook', 'simulator'] }, // Optional per legacy
-  batteryPercent: { type: 'number', required: false, min: 0, max: 100 },
-  rssi: { type: 'number', required: false, min: -140, max: -30 },
-  snr: { type: 'number', required: false, min: -20, max: 30 },
-  sensors: { type: 'object', required: false, validate: validateSensors } // Optional per legacy
-};
+const validZoneIds = ZONES.map(z => z.id);
 
-/**
- * Validazione valori sensori (supporta formato legacy e nuovo)
- */
-function validateSensors(sensors) {
-  if (!sensors || typeof sensors !== 'object') {
-    return { valid: false, error: 'sensors must be an object' };
-  }
+const sensorSchema = Joi.object({
+  temperatureC: Joi.number().min(-50).max(100).optional(),
+  humidityPercent: Joi.number().min(0).max(100).optional(),
+  co2Ppm: Joi.number().min(0).max(10000).optional(),
+  vocIndex: Joi.number().min(0).max(500).optional(),
+  lightLux: Joi.number().min(0).max(100000).optional(),
+  flowLmin: Joi.number().min(0).max(1000).optional(),
+  waterLevelPercent: Joi.number().min(0).max(100).optional(),
+  levelPercent: Joi.number().min(0).max(100).optional(),
+  pressureKpa: Joi.number().min(0).max(1000).optional()
+});
 
-  const sensorSchemas = {
-    temperatureC: { type: 'number', min: -50, max: 100 },
-    humidityPercent: { type: 'number', min: 0, max: 100 },
-    co2Ppm: { type: 'number', min: 0, max: 10000 },
-    vocIndex: { type: 'number', min: 0, max: 500 },
-    lightLux: { type: 'number', min: 0, max: 100000 },
-    flowLmin: { type: 'number', min: 0, max: 1000 },
-    waterLevelPercent: { type: 'number', min: 0, max: 100 },
-    levelPercent: { type: 'number', min: 0, max: 100 }, // Legacy format
-    pressureKpa: { type: 'number', min: 0, max: 1000 }
-  };
-
-  for (const [key, value] of Object.entries(sensors)) {
-    const schema = sensorSchemas[key];
-    if (!schema) {
-      // Skip unknown fields for backward compatibility
-      continue;
-    }
-
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-      return { valid: false, error: `${key} must be a valid number` };
-    }
-
-    if (value < schema.min || value > schema.max) {
-      return { valid: false, error: `${key} must be between ${schema.min} and ${schema.max}` };
-    }
-  }
-
-  return { valid: true };
-}
-
-/**
- * Validazione campo singolo
- */
-function validateField(value, schema) {
-  if (schema.required && (value === undefined || value === null || value === '')) {
-    return { valid: false, error: `${schema.field || 'field'} is required` };
-  }
-
-  if (value === undefined || value === null || value === '') {
-    return { valid: true };
-  }
-
-  if (schema.type === 'string') {
-    if (typeof value !== 'string') {
-      return { valid: false, error: `${schema.field || 'field'} must be a string` };
-    }
-    
-    if (schema.minLength && value.length < schema.minLength) {
-      return { valid: false, error: `${schema.field || 'field'} must be at least ${schema.minLength} characters` };
-    }
-    
-    if (schema.maxLength && value.length > schema.maxLength) {
-      return { valid: false, error: `${schema.field || 'field'} must be at most ${schema.maxLength} characters` };
-    }
-    
-    if (schema.pattern && !schema.pattern.test(value)) {
-      return { valid: false, error: `${schema.field || 'field'} contains invalid characters` };
-    }
-    
-    if (schema.enum && !schema.enum.includes(value)) {
-      return { valid: false, error: `${schema.field || 'field'} must be one of: ${schema.enum.join(', ')}` };
-    }
-    
-    if (schema.format === 'iso8601') {
-      const date = new Date(value);
-      if (isNaN(date.getTime()) || date.toISOString() !== value) {
-        return { valid: false, error: `${schema.field || 'field'} must be a valid ISO 8601 timestamp` };
-      }
-    }
-  }
-
-  if (schema.type === 'number') {
-    const num = Number(value);
-    if (!Number.isFinite(num)) {
-      return { valid: false, error: `${schema.field || 'field'} must be a valid number` };
-    }
-    
-    if (schema.min !== undefined && num < schema.min) {
-      return { valid: false, error: `${schema.field || 'field'} must be at least ${schema.min}` };
-    }
-    
-    if (schema.max !== undefined && num > schema.max) {
-      return { valid: false, error: `${schema.field || 'field'} must be at most ${schema.max}` };
-    }
-  }
-
-  if (schema.type === 'object' && schema.validate) {
-    return schema.validate(value);
-  }
-
-  return { valid: true };
-}
+const readingSchema = Joi.object({
+  nodeId: Joi.string().min(3).max(50).pattern(/^[a-zA-Z0-9\-_]+$/).required(),
+  zoneId: Joi.string().valid(...validZoneIds).required(),
+  gatewayId: Joi.string().min(3).max(50).pattern(/^[a-zA-Z0-9\-_]+$/).required(),
+  timestamp: Joi.string().isoDate().optional(),
+  source: Joi.string().valid('lora-gateway', 'ttn-webhook', 'simulator').optional(),
+  batteryPercent: Joi.number().min(0).max(100).optional(),
+  battery_level: Joi.number().min(0).max(100).optional(),
+  rssi: Joi.number().min(-160).max(-30).optional(),
+  snr: Joi.number().min(-30).max(30).optional(),
+  sensors: sensorSchema.optional()
+}).unknown(true); // Allow legacy format sensors at root
 
 /**
  * Validazione completo payload reading
  */
 function validateReading(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return { valid: false, error: 'Payload must be an object' };
+  const { error } = readingSchema.validate(payload, { abortEarly: false });
+  if (error) {
+    return { valid: false, error: error.details.map(d => d.message).join(', ') };
   }
 
-  // Check required fields
-  const requiredFields = ['nodeId', 'zoneId', 'gatewayId'];
-  for (const field of requiredFields) {
-    if (!payload[field]) {
-      return { valid: false, error: `${field} is required` };
-    }
-  }
-
-  // Validate required fields
-  for (const field of requiredFields) {
-    const schema = READING_SCHEMA[field];
-    const fieldSchema = { ...schema, field };
-    const result = validateField(payload[field], fieldSchema);
-    if (!result.valid) {
-      return result;
-    }
-  }
-
-  // Validate optional numeric fields
-  const numericFields = ['batteryPercent', 'rssi', 'snr'];
-  for (const field of numericFields) {
-    if (payload[field] !== undefined) {
-      const schema = READING_SCHEMA[field];
-      const fieldSchema = { ...schema, field };
-      const result = validateField(payload[field], fieldSchema);
-      if (!result.valid) {
-        return result;
-      }
-    }
-  }
-
-  // Validate sensors object OR legacy sensor fields at top level
-  if (payload.sensors) {
-    const result = validateSensors(payload.sensors);
-    if (!result.valid) {
-      return result;
-    }
-  } else {
-    // Legacy format: check for sensor fields at top level
+  // Legacy format check
+  if (!payload.sensors) {
     const sensorFields = ['temperatureC', 'humidityPercent', 'co2Ppm', 'vocIndex', 'lightLux', 'flowLmin', 'levelPercent', 'waterLevelPercent', 'pressureKpa'];
     const legacySensors = {};
-    
     for (const field of sensorFields) {
       if (payload[field] !== undefined) {
         legacySensors[field] = payload[field];
       }
     }
-    
     if (Object.keys(legacySensors).length > 0) {
-      const result = validateSensors(legacySensors);
-      if (!result.valid) {
-        return result;
+      const { error: sensorError } = sensorSchema.validate(legacySensors, { abortEarly: false });
+      if (sensorError) {
+        return { valid: false, error: sensorError.details.map(d => d.message).join(', ') };
       }
     }
   }
 
-  // Validate optional fields
-  const optionalFields = ['timestamp', 'source'];
-  for (const field of optionalFields) {
-    if (payload[field] !== undefined) {
-      const schema = READING_SCHEMA[field];
-      const fieldSchema = { ...schema, field };
-      const result = validateField(payload[field], fieldSchema);
-      if (!result.valid) {
-        return result;
-      }
-    }
-  }
+  return { valid: true };
+}
 
+/**
+ * Validazione valori sensori (supporta formato legacy e nuovo)
+ */
+function validateSensors(sensors) {
+  const { error } = sensorSchema.validate(sensors, { abortEarly: false });
+  if (error) {
+    return { valid: false, error: error.details.map(d => d.message).join(', ') };
+  }
   return { valid: true };
 }
 
@@ -215,7 +87,6 @@ function validateQueryParams(params, allowedParams) {
       continue;
     }
 
-    // Sanitization basica
     if (typeof value === 'string') {
       result.sanitized[key] = value.trim().replace(/[<>]/g, '');
     } else {
@@ -235,18 +106,11 @@ function validateQueryParams(params, allowedParams) {
  * Validazione ID sensore per database
  */
 function validateSensorId(sensorId) {
-  if (!sensorId || typeof sensorId !== 'string') {
-    return { valid: false, error: 'Sensor ID is required and must be a string' };
+  const schema = Joi.string().min(3).max(50).pattern(/^[a-zA-Z0-9\-_]+$/).required();
+  const { error } = schema.validate(sensorId);
+  if (error) {
+    return { valid: false, error: error.message };
   }
-
-  if (sensorId.length < 3 || sensorId.length > 50) {
-    return { valid: false, error: 'Sensor ID must be between 3 and 50 characters' };
-  }
-
-  if (!/^[a-zA-Z0-9\-_]+$/.test(sensorId)) {
-    return { valid: false, error: 'Sensor ID can only contain letters, numbers, hyphens and underscores' };
-  }
-
   return { valid: true };
 }
 

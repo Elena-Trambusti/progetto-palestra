@@ -1,5 +1,5 @@
 /**
- * "Sesto Senso" - Analytics Intelligente Acqua
+ * "Misuratore dati LORA" - Analytics Intelligente Acqua
  * Analisi predittiva per prevenzione danni e ottimizzazione consumi
  */
 
@@ -89,25 +89,42 @@ async function analyzeWaterData({ nodeId, flowLmin, levelPercent, timestamp = ne
       results.metrics.maintenanceStatus = maintenanceAlert.severity;
     }
 
-    // 4. Analisi livello critico (esistente)
-    if (levelPercent <= 12) {
-      results.alerts.push({
-        type: 'water_critical',
-        severity: 'critical',
-        title: 'Livello Acqua Critico',
-        message: `Livello serbatoio al ${levelPercent}% - rischio esaurimento`,
-        estimatedWaste: 0,
-        action: 'Rifornimento immediato serbatoio'
-      });
-    } else if (levelPercent <= 25) {
-      results.alerts.push({
-        type: 'water_low',
-        severity: 'warning',
-        title: 'Livello Acqua Basso',
-        message: `Livello serbatoio al ${levelPercent}% - pianificare rifornimento`,
-        estimatedWaste: 0,
-        action: 'Programmare rifornimento entro 48h'
-      });
+    // 4. Analisi livello e perdite specifiche per zona
+    if (node.zoneId === 'controsoffitti') {
+      // Nei controsoffitti, se il livello (water_level_mm o presence) è > 0, è una perdita!
+      if (levelPercent !== null && levelPercent > 0) {
+        results.alerts.push({
+          type: 'ceiling_leak',
+          severity: 'critical',
+          title: '🚨 ALLAGAMENTO CONTROSOFFITTI',
+          message: `Rilevata presenza di acqua nei controsoffitti (valore: ${levelPercent})!`,
+          estimatedWaste: 0,
+          action: 'Ispezione immediata controsoffitti e impianto idraulico superiore!'
+        });
+      }
+    } else {
+      // Logica standard serbatoi (Vano Idrico)
+      if (levelPercent !== null) {
+        if (levelPercent <= 12) {
+          results.alerts.push({
+            type: 'water_critical',
+            severity: 'critical',
+            title: 'Livello Acqua Critico',
+            message: `Livello serbatoio al ${levelPercent}% - rischio esaurimento`,
+            estimatedWaste: 0,
+            action: 'Rifornimento immediato serbatoio'
+          });
+        } else if (levelPercent <= 25) {
+          results.alerts.push({
+            type: 'water_low',
+            severity: 'warning',
+            title: 'Livello Acqua Basso',
+            message: `Livello serbatoio al ${levelPercent}% - pianificare rifornimento`,
+            estimatedWaste: 0,
+            action: 'Programmare rifornimento entro 48h'
+          });
+        }
+      }
     }
 
     // Invia notifiche Telegram per gli alert

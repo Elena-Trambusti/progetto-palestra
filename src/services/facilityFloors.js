@@ -12,9 +12,7 @@ export function planPathForFloorId(floorId) {
 }
 
 export const MOCK_FLOORS = [
-  { id: "T", label: "Tetto / centrale tecnica" },
-  { id: "-1", label: "Piano -1" },
-  { id: "0", label: "Piano terra" },
-  { id: "1", label: "Piano 1" },
-  { id: "2", label: "Piano 2" },
+  { id: "0", label: "Piano 0 (Vano Idrico)" },
+  { id: "1", label: "Piano 1 (Palestra)" },
+  { id: "2", label: "Piano 2 (Tetto)" },
 ];

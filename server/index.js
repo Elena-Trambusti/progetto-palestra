@@ -32,6 +32,7 @@ const {
   findNode,
   findNodeByZone,
   findGateway,
+  updateTopology,
 } = require("./lib/zonesData");
 const { computeWaterEta, detectRapidDrop } = require("./lib/waterInsights");
 const {
@@ -45,7 +46,7 @@ const adminAuthLib = require("./lib/adminAuth");
 const backupManager = require("./lib/backupManager");
 const partitionManager = require("./lib/partitionManager");
 const rbacManager = require("./lib/rbacManager");
-
+const { validateReading } = require("./lib/validation");
 // Swagger/OpenAPI documentation
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./swagger");
@@ -54,6 +55,7 @@ const swaggerSpecs = require("./swagger");
 const { startBatteryMonitoring } = require("./lib/batteryAlerts");
 const { startNetworkMonitoring } = require("./lib/networkAlerts");
 const { isTelegramConfigured } = require("./lib/telegram");
+const { startReportScheduler, generatePdfReport } = require("./lib/pdfReporter");
 
 function maskDbUrl(url) {
   const u = String(url || "").trim();
@@ -469,7 +471,7 @@ function normalizeReadingPayload(body) {
     null;
   const lightLux = body?.lightLux ?? sensors.lightLux ?? null;
   const flowLmin = body?.flowLmin ?? sensors.flowLmin ?? null;
-  const batteryPercent = body?.batteryPercent ?? body?.battery ?? null;
+  const batteryPercent = body?.battery_level ?? body?.batteryPercent ?? body?.battery ?? null;
   const rssi = body?.rssi ?? null;
   const snr = body?.snr ?? null;
   const gatewayId =
@@ -1148,7 +1150,7 @@ app.use(
   swaggerUi.setup(swaggerSpecs, {
     explorer: true,
     customCss: ".swagger-ui .topbar { display: none }",
-    customSiteTitle: "Sesto Senso API Docs",
+    customSiteTitle: "Misuratore dati LORA API Docs",
   }),
 );
 
@@ -1516,7 +1518,7 @@ app.get("/api/dashboard/snapshot", limitApiRead, async (req, res) => {
 });
 
 /**
- * "Sesto Senso" - API Risparmio Idrico
+ * "Misuratore dati LORA" - API Risparmio Idrico
  * Fornisce dati su consumi, sprechi e manutenzione predittiva
  */
 app.get("/api/water/savings", limitApiRead, async (req, res) => {
@@ -1930,6 +1932,11 @@ app.post("/api/ingest/reading", limitIngest, ingestAuth, async (req, res) => {
       hint: "Con DATABASE_URL configurato usa POST /api/ingest (webhook TTN).",
     });
   }
+  const validationResult = validateReading(req.body || {});
+  if (!validationResult.valid) {
+    metrics.ingestRejected += 1;
+    return res.status(400).json({ error: "validation_error", details: validationResult.error });
+  }
   const reading = normalizeReadingPayload(req.body || {});
   if (reading.error) {
     return res.status(400).json(reading);
@@ -1989,6 +1996,23 @@ app.post("/api/ingest", limitIngest, ingestAuth, async (req, res) => {
     return res.status(500).json({ error: "ingest_failed" });
   }
 });
+
+app.get(
+  "/api/admin/report/pdf",
+  adminAuthLib.requireAdminAuth,
+  async (req, res) => {
+    try {
+      const pdfBuffer = await generatePdfReport();
+      const filename = `Report_LORA_${new Date().toISOString().split('T')[0]}.pdf`;
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(pdfBuffer);
+    } catch (err) {
+      console.error("[report] Errore generazione PDF:", err);
+      res.status(500).json({ error: "Errore interno durante la generazione del report" });
+    }
+  }
+);
 
 app.get(
   "/api/admin/sensors",
@@ -2824,6 +2848,17 @@ async function startHttpServer() {
     const dbCheck = await pgStore.verifyDatabaseOnStartup();
     if (dbCheck.ok) {
       console.log("✅ Connessione al database PostgreSQL riuscita");
+      
+      try {
+        console.log("🔄 Caricamento topologia dinamica dal Database...");
+        const topo = await pgStore.fetchTopology();
+        updateTopology(topo);
+        console.log("✅ Topologia dinamica caricata con successo");
+      } catch (err) {
+        console.error("❌ Errore caricamento topologia:", err.message);
+      }
+      
+      startReportScheduler();
     } else {
       console.log("❌ Errore di connessione al database");
       const err = dbCheck.error;

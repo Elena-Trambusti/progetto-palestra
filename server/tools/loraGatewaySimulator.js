@@ -54,7 +54,7 @@ function makeReading({ nodeId, zoneId }) {
   // Temperatura sempre presente (server la richiede)
   sensors.temperatureC = Number(rand(21, 33).toFixed(1));
 
-  // "Sesto Senso" Test - Simula perdita notturna alle 03:00
+  // "Misuratore dati LORA" Test - Simula perdita notturna alle 03:00
   const currentHour = new Date().getHours();
   const isNightLeakTest = currentHour >= 3 && currentHour < 4; // Test tra 03:00-04:00
 

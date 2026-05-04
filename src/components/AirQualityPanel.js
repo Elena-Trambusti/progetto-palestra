@@ -100,7 +100,7 @@ export default function AirQualityPanel({
         <Wind className="air-quality-panel__icon" aria-hidden />
         <div>
           <h2 id="air-quality-panel-heading" className="air-quality-panel__title">
-            Qualità Aria - Sesto Senso
+            Qualità Aria - Misuratore dati LORA
           </h2>
           <p className="air-quality-panel__hint mono">
             CO₂ · VOC · Illuminazione · Flusso
