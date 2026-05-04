@@ -162,8 +162,18 @@ async function ensureSchema(client) {
   `;
   try {
     await client.query(addCols);
+    
+    // Fix existing simulated data to match real zones
+    await client.query(`
+      UPDATE sensors SET location = 'Vano Idrico', name = 'Nodo Vano Idrico', zone_id = 'vano-idrico' WHERE dev_eui = 'node-water-01';
+      UPDATE sensors SET location = 'Palestra', name = 'Nodo Palestra', zone_id = 'palestra' WHERE dev_eui = 'node-env-01';
+      UPDATE sensors SET location = 'Controsoffitti Palestra', name = 'Nodo Controsoffitti', zone_id = 'controsoffitti' WHERE dev_eui = 'node-tech-01';
+      -- Eventuali nodi vecchi del simulatore: mettiamoli off o rinominiamoli per non inquinare la UI
+      UPDATE sensors SET location = 'Palestra' WHERE dev_eui LIKE '%air%' AND dev_eui != 'node-env-01';
+      UPDATE sensors SET location = 'Vano Idrico' WHERE dev_eui LIKE '%flow%' OR dev_eui LIKE '%water%' AND dev_eui != 'node-water-01';
+    `);
   } catch(e) {
-    console.error("[postgresStore] Errore aggiunta colonne topologia:", e);
+    console.error("[postgresStore] Errore aggiunta colonne o aggiornamento topologia:", e);
   }
 }
 
