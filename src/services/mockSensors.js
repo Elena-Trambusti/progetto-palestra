@@ -52,7 +52,7 @@ export const MOCK_ZONES = [
     mapY: 20,
     planPath: planPathForFloorId("1"),
     kind: "technical",
-    primaryNodeId: "node-tech-01",
+    primaryNodeId: "",
   },
   {
     id: "tetto",
@@ -80,13 +80,6 @@ export const MOCK_NODES = [
     zoneId: "palestra",
     gatewayId: "gw-livorno-01",
     sensors: ["temperatureC", "humidityPercent", "co2Ppm", "vocIndex"],
-  },
-  {
-    id: "node-tech-01",
-    label: "Nodo Controsoffitti",
-    zoneId: "controsoffitti",
-    gatewayId: "gw-livorno-01",
-    sensors: ["temperatureC", "waterRapidDrop"],
   },
 ];
 

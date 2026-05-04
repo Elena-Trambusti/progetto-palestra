@@ -43,7 +43,7 @@ let ZONES = [
     mapX: 50,
     mapY: 20,
     kind: "technical",
-    primaryNodeId: "node-tech-01",
+    primaryNodeId: "",
   },
   {
     id: "tetto",
@@ -78,17 +78,6 @@ let NODES = [
     mapY: 50,
     hardware: "STM32 + LoRa",
     sensors: ["temperatureC", "co2Ppm", "vocIndex"],
-  },
-  {
-    id: "node-tech-01",
-    label: "Nodo Controsoffitti",
-    zoneId: "controsoffitti",
-    gatewayId: "gw-livorno-01",
-    floor: "1",
-    mapX: 50,
-    mapY: 20,
-    hardware: "ESP32 + LoRa",
-    sensors: ["water_level_mm", "battery", "rssi"],
   },
 ];
 

@@ -176,7 +176,7 @@ async function ensureSchema(client) {
       INSERT INTO zones (id, name, floor_id, map_x, map_y, kind, primary_node_id) VALUES
         ('vano-idrico', 'Vano Idrico', '0', 20, 20, 'water', 'node-water-01'),
         ('palestra', 'Palestra', '1', 50, 50, 'environment', 'node-env-01'),
-        ('controsoffitti', 'Controsoffitti Palestra', '1', 50, 20, 'technical', 'node-tech-01'),
+        ('controsoffitti', 'Controsoffitti Palestra', '1', 50, 20, 'technical', NULL),
         ('tetto', 'Tetto', '2', 50, 50, 'gateway', 'gw-livorno-01')
       ON CONFLICT (id) DO NOTHING;
     `);
@@ -185,10 +185,9 @@ async function ensureSchema(client) {
     await client.query(`
       UPDATE sensors SET location = 'Vano Idrico', name = 'Nodo Vano Idrico', zone_id = 'vano-idrico' WHERE dev_eui = 'node-water-01';
       UPDATE sensors SET location = 'Palestra', name = 'Nodo Palestra', zone_id = 'palestra' WHERE dev_eui = 'node-env-01';
-      UPDATE sensors SET location = 'Controsoffitti Palestra', name = 'Nodo Controsoffitti', zone_id = 'controsoffitti' WHERE dev_eui = 'node-tech-01';
       
       -- ELIMINA TUTTI I SENSORI VECCHI E SIMULATI
-      DELETE FROM sensors WHERE dev_eui NOT IN ('node-water-01', 'node-env-01', 'node-tech-01', 'gw-livorno-01');
+      DELETE FROM sensors WHERE dev_eui NOT IN ('node-water-01', 'node-env-01', 'gw-livorno-01');
     `);
   } catch(e) {
     console.error("[postgresStore] Errore aggiunta colonne o aggiornamento topologia:", e);
