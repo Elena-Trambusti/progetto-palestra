@@ -1044,6 +1044,29 @@ async function pingDatabase() {
   }
 }
 
+/**
+ * Recupera l'intera topologia dal DB per sincronizzare zonesData.js
+ */
+async function fetchTopology() {
+  return withClient(async (c) => {
+    const floorsRes = await c.query(`SELECT id, label, plan_slug AS "planSlug" FROM floors`);
+    const gatewaysRes = await c.query(`SELECT id, name, floor_id AS "floor", map_x AS "mapX", map_y AS "mapY", location, uplink, backhaul FROM gateways`);
+    const zonesRes = await c.query(`SELECT id, name, floor_id AS "floor", map_x AS "mapX", map_y AS "mapY", kind, primary_node_id AS "primaryNodeId" FROM zones`);
+    const nodesRes = await c.query(`
+      SELECT dev_eui AS id, name AS label, zone_id AS "zoneId", gateway_id AS "gatewayId", 
+             floor_id AS "floor", map_x AS "mapX", map_y AS "mapY", hardware, sensor_list AS "sensors" 
+      FROM sensors 
+      WHERE zone_id IS NOT NULL
+    `);
+    return {
+      floors: floorsRes.rows,
+      gateways: gatewaysRes.rows,
+      zones: zonesRes.rows,
+      nodes: nodesRes.rows
+    };
+  });
+}
+
 module.exports = {
   getPool,
   ensureSchema,
