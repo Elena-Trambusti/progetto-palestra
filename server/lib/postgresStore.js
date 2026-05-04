@@ -161,16 +161,36 @@ async function ensureSchema(client) {
     ALTER TABLE sensors ADD COLUMN IF NOT EXISTS sensor_list JSONB DEFAULT '[]'::jsonb;
   `;
   try {
-    await client.query(addCols);
-    
+    await client.query(addCols);    // Inserisci topologia base per non violare le Foreign Key
+    await client.query(`
+      INSERT INTO floors (id, label, plan_slug) VALUES
+        ('0', 'Piano 0 (Vano Idrico)', '0'),
+        ('1', 'Piano 1 (Palestra)', '1'),
+        ('2', 'Piano 2 (Tetto)', '2')
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO gateways (id, name, floor_id, map_x, map_y, location, uplink, backhaul) VALUES
+        ('gw-livorno-01', 'Gateway LoRa centrale', '2', 50, 50, 'Tetto', 'LoRa', 'Ethernet')
+      ON CONFLICT (id) DO NOTHING;
+
+      INSERT INTO zones (id, name, floor_id, map_x, map_y, kind, primary_node_id) VALUES
+        ('vano-idrico', 'Vano Idrico', '0', 20, 20, 'water', 'node-water-01'),
+        ('palestra', 'Palestra', '1', 50, 50, 'environment', 'node-env-01'),
+        ('controsoffitti', 'Controsoffitti Palestra', '1', 50, 20, 'technical', 'node-tech-01'),
+        ('tetto', 'Tetto', '2', 50, 50, 'gateway', 'gw-livorno-01')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
     // Fix existing simulated data to match real zones
     await client.query(`
       UPDATE sensors SET location = 'Vano Idrico', name = 'Nodo Vano Idrico', zone_id = 'vano-idrico' WHERE dev_eui = 'node-water-01';
       UPDATE sensors SET location = 'Palestra', name = 'Nodo Palestra', zone_id = 'palestra' WHERE dev_eui = 'node-env-01';
       UPDATE sensors SET location = 'Controsoffitti Palestra', name = 'Nodo Controsoffitti', zone_id = 'controsoffitti' WHERE dev_eui = 'node-tech-01';
-      -- Eventuali nodi vecchi del simulatore: mettiamoli off o rinominiamoli per non inquinare la UI
-      UPDATE sensors SET location = 'Palestra' WHERE dev_eui LIKE '%air%' AND dev_eui != 'node-env-01';
-      UPDATE sensors SET location = 'Vano Idrico' WHERE dev_eui LIKE '%flow%' OR dev_eui LIKE '%water%' AND dev_eui != 'node-water-01';
+      
+      -- Forza TUTTI gli altri nodi esistenti in Palestra/Vano Idrico per far sparire i vecchi nomi
+      UPDATE sensors SET location = 'Palestra' WHERE type = 'air' AND dev_eui != 'node-env-01';
+      UPDATE sensors SET location = 'Vano Idrico' WHERE type = 'water' AND dev_eui != 'node-water-01';
+      UPDATE sensors SET location = 'Palestra' WHERE location NOT IN ('Vano Idrico', 'Palestra', 'Controsoffitti Palestra', 'Tetto');
     `);
   } catch(e) {
     console.error("[postgresStore] Errore aggiunta colonne o aggiornamento topologia:", e);
