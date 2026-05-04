@@ -187,10 +187,8 @@ async function ensureSchema(client) {
       UPDATE sensors SET location = 'Palestra', name = 'Nodo Palestra', zone_id = 'palestra' WHERE dev_eui = 'node-env-01';
       UPDATE sensors SET location = 'Controsoffitti Palestra', name = 'Nodo Controsoffitti', zone_id = 'controsoffitti' WHERE dev_eui = 'node-tech-01';
       
-      -- Forza TUTTI gli altri nodi esistenti in Palestra/Vano Idrico per far sparire i vecchi nomi
-      UPDATE sensors SET location = 'Palestra' WHERE type = 'air' AND dev_eui != 'node-env-01';
-      UPDATE sensors SET location = 'Vano Idrico' WHERE type = 'water' AND dev_eui != 'node-water-01';
-      UPDATE sensors SET location = 'Palestra' WHERE location NOT IN ('Vano Idrico', 'Palestra', 'Controsoffitti Palestra', 'Tetto');
+      -- ELIMINA TUTTI I SENSORI VECCHI E SIMULATI
+      DELETE FROM sensors WHERE dev_eui NOT IN ('node-water-01', 'node-env-01', 'node-tech-01', 'gw-livorno-01');
     `);
   } catch(e) {
     console.error("[postgresStore] Errore aggiunta colonne o aggiornamento topologia:", e);
