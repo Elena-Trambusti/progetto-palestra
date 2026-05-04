@@ -1441,39 +1441,10 @@ app.get("/api/ops/summary", limitApiRead, (_req, res) => {
 });
 
 app.get("/api/zones", limitApiRead, async (_req, res) => {
-  if (pgStore) {
-    const locs = await pgStore.listDistinctLocations();
-    return res.json({
-      dataProfile: "postgres",
-      zones: locs.map((loc) => ({
-        id: loc,
-        name: loc,
-        floor: "",
-        mapX: 50,
-        mapY: 50,
-        planPath: null,
-        kind: "area",
-        primaryNodeId: null,
-      })),
-      floors: [],
-    });
-  }
-  res.json({
-    zones: ZONES.map((x) => ({
-      id: x.id,
-      name: x.name,
-      floor: x.floor,
-      mapX: x.mapX,
-      mapY: x.mapY,
-      planPath: planPathForFloor(x.floor),
-      kind: x.kind,
-      primaryNodeId: x.primaryNodeId || null,
-    })),
-    floors: FLOORS.map((f) => ({
-      id: f.id,
-      label: f.label,
-      planPath: planPathForFloor(f.id),
-    })),
+  return res.json({
+    dataProfile: "postgres",
+    zones: zonesData.ZONES,
+    floors: zonesData.FLOORS,
   });
 });
 
