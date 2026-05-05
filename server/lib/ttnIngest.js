@@ -25,7 +25,7 @@ let activeAnalyses = 0;
 const analysisQueue = [];
 
 const LAST_FRAME_COUNTERS = new Map();
-const AUTHORIZED_DEV_EUIS = ["node-water-01", "node-env-01", "gw-livorno-01"];
+const AUTHORIZED_DEV_EUIS = ["NODE-WATER-01", "NODE-ENV-01", "GW-LIVORNO-01"];
 
 const ttnIngestSchema = Joi.object({
   end_device_ids: Joi.object({
