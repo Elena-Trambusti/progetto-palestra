@@ -502,7 +502,7 @@ function normalizeReadingPayload(body) {
   };
 }
 
-function tickZone(zoneId) {
+async function tickZone(zoneId) {
   const z = findZone(zoneId);
   const st = store[zoneId];
   if (!st || !z) return;
@@ -660,6 +660,29 @@ function tickZone(zoneId) {
     deltaPercent: rapid.waterRapidDropDelta,
     webhookUrl: NOTIFY_WEBHOOK,
   });
+
+  if (pgStore && !DISABLE_AUTO_TICK && st.nodeId) {
+    try {
+      await pgStore.insertMeasurement({
+        sensorId: st.nodeId,
+        value: st.lastTemp,
+        co2: st.co2Ppm,
+        voc: st.vocIndex,
+        lux: st.lightLux,
+        sensorType: st.zoneKind,
+        rssi: st.rssi,
+        snr: st.snr,
+        batteryLevel: st.batteryPercent,
+        timestamp: st.uplinkAt,
+      });
+    } catch (err) {
+      logEvent("error", "pg_tick_insert_failed", {
+        zoneId,
+        nodeId: st.nodeId,
+        error: err.message,
+      });
+    }
+  }
 }
 
 /**
@@ -2737,16 +2760,23 @@ function evaluateOpsAlerts() {
   opsAlertWindowState.ingestRejected = metrics.ingestRejected;
 }
 
-const ticker = setInterval(() => {
-  if (!DISABLE_AUTO_TICK && !pgStore) {
-    ZONES.forEach((z) => tickZone(z.id));
+const ticker = setInterval(async () => {
+  if (!DISABLE_AUTO_TICK) {
+    for (const z of ZONES) {
+      await tickZone(z.id).catch((err) =>
+        logEvent("error", "tick_zone_failed", {
+          zoneId: z.id,
+          error: err.message,
+        }),
+      );
+    }
   }
   broadcastSnapshots().catch((err) =>
     logEvent("error", "broadcast_snapshots", {
       error: err && err.message ? err.message : String(err),
     }),
   );
-}, 2000);
+}, 60000);
 const opsAlertTicker = setInterval(evaluateOpsAlerts, OPS_ALERT_CHECK_EVERY_MS);
 
 // Backup automatico schedulato (se abilitato e PG disponibile)
