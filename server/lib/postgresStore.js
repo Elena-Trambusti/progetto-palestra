@@ -350,6 +350,12 @@ async function insertSensor(row) {
   });
 }
 
+function parseOptionalThreshold(val) {
+  if (val === null || val === undefined || val === "") return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+}
+
 async function insertSensor(sensor) {
   const devEui = normalizeDevEui(sensor.dev_eui);
   if (!devEui) throw new Error("dev_eui non valido");

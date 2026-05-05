@@ -657,7 +657,7 @@ async function ingestTtnWebhook(body) {
 
   const measurementData = {
     sensorId: sensor.id,
-    value: Number(value),
+    value: isFinite(Number(value)) ? Number(value) : 0,
     sensorType: sensorInfo.sensorType || sensor.type,
     rssi: radio.rssi,
     snr: radio.snr,
@@ -725,7 +725,7 @@ async function ingestTtnWebhook(body) {
       ok: true,
       sensorId: sensor.id,
       devEui,
-      value: numericValue,
+      value: value,
       timestampUtc: tsUtc.toISOString(),
     },
   };
