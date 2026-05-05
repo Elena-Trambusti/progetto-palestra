@@ -5,13 +5,14 @@
  * - Gestione payload vuoto/corrotto e errori DB senza far terminare il processo.
  */
 const Joi = require("joi");
+const pgStore = require("./postgresStore");
 const {
   normalizeDevEui,
   findSensorByDevEui,
   insertMeasurement,
   recordSensorReboot,
   insertSensor,
-} = require("./postgresStore");
+} = pgStore;
 const { maybeNotifyThresholdAlarm } = require("./telegram");
 const { analyzeWaterData } = require("./waterAnalytics");
 const { analyzeAirData } = require("./airAnalytics");
