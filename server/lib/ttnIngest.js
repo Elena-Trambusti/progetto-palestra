@@ -641,66 +641,14 @@ async function ingestTtnWebhook(body) {
       detail: { ok: true, sensorId, devEui, value, timestamp: tsUtc.toISOString() }
     };
   });
-
-  // 3. ANALISI CON CONTROLLO CONCORRENZA (Semaphore)
-  // Protegge il pool di PostgreSQL limitando le analisi parallele a 5
-  const runAnalysis = async () => {
-    try {
-      if (sensorInfo.type === 'water') {
-        await analyzeWaterPacket(sensor, devEui, decoded, tsUtc);
-      }
-      if (sensorInfo.type === 'air') {
-        await analyzeAirPacket(sensor, devEui, sensorInfo.data, tsUtc);
-      }
-      await analyzeMaintenanceTelemetry({
-        sensorId: sensor.id,
-        devEui,
-        sensorName: sensor.name,
-        location: sensor.location,
-        batteryLevel: battery,
-        rssi: radio.rssi,
-        timestamp: tsUtc
-      });
-    } catch (err) {
-      console.error(`[analysisQueue] Errore durante analisi ${devEui}:`, err);
-    } finally {
-      activeAnalyses--;
-      processNextAnalysis();
-    }
-  };
-
-  const processNextAnalysis = () => {
-    if (analysisQueue.length > 0 && activeAnalyses < MAX_CONCURRENT_ANALYSES) {
-      const nextTask = analysisQueue.shift();
-      activeAnalyses++;
-      nextTask();
-    }
-  };
-
-  // Accoda l'analisi e avvia la gestione della coda
-  analysisQueue.push(runAnalysis);
-  processNextAnalysis();
-
+} catch (err) {
+  console.error(`[AUDIT_FAIL] Eccezione non gestita durante ingest: ${err.message}`, err.stack);
   return {
-    ok: true,
-    status: 200,
-    detail: {
-      ok: true,
-      sensorId: sensor.id,
-      devEui,
-      value: value,
-      timestampUtc: tsUtc.toISOString(),
-    },
+    ok: false,
+    status: 500,
+    detail: { error: "internal_server_error", message: "Errore imprevisto durante l'elaborazione del segnale." }
   };
-
-  } catch (err) {
-    console.error(`[AUDIT_FAIL] Eccezione non gestita durante ingest: ${err.message}`, err.stack);
-    return {
-      ok: false,
-      status: 500,
-      detail: { error: "internal_server_error", message: "Errore imprevisto durante l'elaborazione del segnale." }
-    };
-  }
+}
 }
 
 /**
