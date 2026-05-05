@@ -8,13 +8,13 @@ const { NODES } = require("./zonesData");
 
 // Configurazione via env
 const OFFLINE_TIMEOUT_MS =
-  Number(process.env.NODE_OFFLINE_TIMEOUT_MS) || 10 * 60 * 1000; // 10 min
+  Number(process.env.NODE_OFFLINE_TIMEOUT_MS) || 15 * 60 * 1000; // 15 min
 const RSSI_WARNING_DB =
   Number(process.env.RSSI_WARNING_DB) || -115; // dBm
 const SNR_WARNING_DB =
   Number(process.env.SNR_WARNING_DB) || 0; // dB
 const CHECK_INTERVAL_MS =
-  Number(process.env.NETWORK_CHECK_INTERVAL_MS) || 5 * 60 * 1000; // 5 min
+  Number(process.env.NETWORK_CHECK_INTERVAL_MS) || 60 * 1000; // 1 min
 
 /** @type {Map<string, {status: string, since: number}>} */
 const lastNetworkState = new Map();

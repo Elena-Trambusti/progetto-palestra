@@ -270,14 +270,14 @@ async function notifyNodeOffline({ nodeId, minutesOffline }) {
   }
 
   const text = [
-    `❌ <b>CRITICO: Nodo Non Risponde</b>`,
+    `❌ <b>ATTENZIONE: Nodo ${zoneName} risulta OFFLINE</b>`,
     "",
     `📡 Nodo: ${nodeName} (${nodeId})`,
     `⏱️ Ultimo contatto: ${minutesOffline} minuti fa`,
     "",
-    `📍 ${zoneName}\n🗺️ Piano ${floor}`,
+    `📍 Posizione: ${zoneName}\n🗺️ Piano: ${floor}`,
     "",
-    `⚡ <b>Azione consigliata:</b> Verificare alimentazione e connessione LoRa`,
+    `⚡ <b>Supervisione:</b> Verificare con urgenza alimentazione o copertura radio`,
     "",
     `🕐 ${formatItalianTime()} (ITA)`,
   ].join("\n");

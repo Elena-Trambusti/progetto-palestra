@@ -28,46 +28,39 @@ const ttnIngestSchema = Joi.object({
   dev_eui: Joi.string().hex().length(16).optional(), // fallback
   uplink_message: Joi.object({
     decoded_payload: Joi.object({
-      temperatureC: Joi.number().min(-40).max(80).optional(),
-      temperature: Joi.number().min(-40).max(80).optional(),
-      temp: Joi.number().min(-40).max(80).optional(),
+      temperatureC: Joi.number().min(0).max(60).optional(),
       humidityPercent: Joi.number().min(0).max(100).optional(),
-      humidity: Joi.number().min(0).max(100).optional(),
-      rh: Joi.number().min(0).max(100).optional(),
-      co2Ppm: Joi.number().min(0).max(5000).optional(),
-      co2: Joi.number().min(0).max(5000).optional(),
+      co2Ppm: Joi.number().min(300).max(5000).optional(),
       vocIndex: Joi.number().min(0).max(500).optional(),
-      voc: Joi.number().min(0).max(500).optional(),
-      iaq: Joi.number().min(0).max(500).optional(),
-      lux: Joi.number().min(0).max(100000).optional(),
-      lightLux: Joi.number().min(0).max(100000).optional(),
+      lux: Joi.number().min(0).max(20000).optional(),
       levelPercent: Joi.number().min(0).max(100).optional(),
-      level: Joi.number().min(0).max(100).optional(),
-      flowLmin: Joi.number().min(0).max(1000).optional(),
-      flow: Joi.number().min(0).max(1000).optional(),
-      batteryPercent: Joi.number().min(0).max(100).optional(),
-      battery_level: Joi.number().min(0).max(100).optional(),
-      battery: Joi.number().min(0).max(100).optional(),
-      bat: Joi.number().min(0).max(100).optional(),
-      vbat: Joi.number().min(0).max(5).optional(),
-    }).optional(),
+      flowLmin: Joi.number().min(0).max(200).optional(),
+      battery_level: Joi.number().integer().min(0).max(100).optional(),
+    }).required(),
     rx_metadata: Joi.array().items(
       Joi.object({
-        rssi: Joi.number().min(-160).max(-1).optional(),
-        snr: Joi.number().min(-30).max(30).optional(),
-        gateway_id: Joi.string().optional(),
+        rssi: Joi.number().min(-160).max(-30).required(),
+        snr: Joi.number().min(-20).max(15).optional(),
+        gateway_id: Joi.string().required(),
       })
     ).optional(),
-    rssi: Joi.number().min(-160).max(-1).optional(),
-    snr: Joi.number().min(-30).max(30).optional(),
-    frm_payload: Joi.string().base64().optional(),
-    payload_raw: Joi.string().base64().optional(),
-    f_port: Joi.number().integer().min(1).max(255).optional(),
+    rssi: Joi.number().min(-160).max(-30).optional(),
+    snr: Joi.number().min(-20).max(15).optional(),
     f_cnt: Joi.number().integer().min(0).optional(),
-  }).optional(),
-  received_at: Joi.string().isoDate().optional(),
-  ingest_time: Joi.string().isoDate().optional(),
+  }).required(),
+  received_at: Joi.string().isoDate().required(),
 }).required();
+
+// WHITELIST RIGOROSA DEI DISPOSITIVI AUTORIZZATI
+const AUTHORIZED_DEV_EUIS = [
+  "node-water-01", // Nodo Vano Idrico
+  "node-env-01",   // Nodo Palestra
+  "gw-livorno-01"  // Gateway
+];
+
+// CACHE DEDUPLICAZIONE (Senior Engineer Mode)
+// Chiave: devEui, Valore: ultimo f_cnt ricevuto
+const LAST_FRAME_COUNTERS = new Map();
 
 /**
  * Mappatura dinamica sensori - LEGGE DA ENV oppure usa defaults
@@ -490,6 +483,34 @@ async function ingestTtnWebhook(body) {
   const { devEui, decoded, buf, rssi, snr, tsRaw, payloadMeta } = extractTtnFields(body);
   if (!devEui) {
     return { ok: false, status: 400, detail: { error: "dev_eui_missing" } };
+  }
+
+  // WHITELIST RIGOROSA (Senior Security Engineer Mode)
+  if (!AUTHORIZED_DEV_EUIS.includes(devEui)) {
+    console.warn(`[SECURITY_ALERT] Tentativo di ingest da devEUI NON autorizzato: ${devEui}`);
+    return { 
+      ok: false, 
+      status: 401, 
+      detail: { 
+        error: "unauthorized_device", 
+        message: "Dispositivo non presente nella whitelist di sicurezza" 
+      } 
+    };
+  }
+
+  // DEDUPLICAZIONE RIGOROSA
+  const fCnt = validatedData.uplink_message?.f_cnt;
+  if (fCnt !== undefined) {
+    const lastCnt = LAST_FRAME_COUNTERS.get(devEui);
+    if (lastCnt !== undefined && fCnt <= lastCnt) {
+      // È un duplicato (stesso f_cnt da altro gateway) o un pacchetto arrivato fuori ordine
+      return { 
+        ok: false, 
+        status: 200, // Ritorniamo 200 perché TTN deve pensare che sia andata bene, ma noi lo scartiamo
+        detail: { error: "duplicate_frame", devEui, fCnt, lastCnt } 
+      };
+    }
+    LAST_FRAME_COUNTERS.set(devEui, fCnt);
   }
 
   let sensor;

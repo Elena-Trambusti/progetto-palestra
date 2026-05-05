@@ -2,6 +2,9 @@
 
 const { thresholdFlag } = require("./postgresStore");
 
+const ALERT_COOLDOWN_MS = 5 * 60 * 1000;
+const alertCooldowns = new Map();
+
 function getEnvToken() {
   const t = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
   return t || null;
@@ -144,6 +147,15 @@ async function maybeNotifyThresholdAlarm(sensor, numericValue) {
 
   const flag = thresholdFlag(v, minT, maxT);
   if (!flag) return;
+
+  // COOLDOWN (Anti-Flapping)
+  const cooldownKey = `${sensor.id || sensor.dev_eui}_${flag}`;
+  const now = Date.now();
+  const lastAlert = alertCooldowns.get(cooldownKey);
+  if (lastAlert && now - lastAlert < ALERT_COOLDOWN_MS) {
+    return;
+  }
+  alertCooldowns.set(cooldownKey, now);
 
   const name = sensor.name != null ? String(sensor.name) : "Sensore";
   const emoji = flag === "low" ? "📉" : "📈";

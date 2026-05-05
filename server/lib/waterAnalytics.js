@@ -8,10 +8,14 @@ const { notifyCriticalAlarm, notifyWarning } = require("./telegramNotifier");
 const { findZone, findNode } = require("./zonesData");
 
 // Configurazione soglie (override da env se necessario)
-const NIGHT_HOURS_START = Number(process.env.WATER_NIGHT_START) || 1;  // 01:00
+const NIGHT_HOURS_START = Number(process.env.WATER_NIGHT_START) || 2;  // 02:00 (come richiesto)
 const NIGHT_HOURS_END = Number(process.env.WATER_NIGHT_END) || 5;    // 05:00
 const NIGHT_FLOW_MIN_THRESHOLD = Number(process.env.WATER_NIGHT_MIN_FLOW) || 0.1; // L/min
-const FLOW_CHECK_INTERVAL_MIN = 1; // minuti per calcolo litri
+const NIGHT_LEAK_DURATION_THRESHOLD_MS = 10 * 60 * 1000; // 10 minuti continui
+const FLOW_CHECK_INTERVAL_MIN = 1;
+
+// Tracking in-memory per durata flusso notturno
+const nightFlowStartMap = new Map();
 
 /**
  * Analisi intelligente dati acqua da nodo LoRa
@@ -145,30 +149,47 @@ async function analyzeWaterData({ nodeId, flowLmin, levelPercent, timestamp = ne
  */
 async function detectNightLeak({ nodeId, flowLmin, timestamp, threshold }) {
   const hour = timestamp.getHours();
+  const now = timestamp.getTime();
   
-  // Verifica se è orario notturno (01:00-05:00)
+  // Verifica se è orario notturno (02:00-05:00)
   const isNightTime = hour >= NIGHT_HOURS_START && hour < NIGHT_HOURS_END;
-  
-  if (!isNightTime || flowLmin <= threshold) {
+  const isFlowing = flowLmin > threshold;
+
+  if (!isNightTime || !isFlowing) {
+    nightFlowStartMap.delete(nodeId); // Reset se il flusso si ferma o siamo fuori orario
     return null;
   }
 
-  // Calcola spreco stimato (8 ore notturne * flusso anomalo)
+  // Inizio tracking del flusso
+  if (!nightFlowStartMap.has(nodeId)) {
+    nightFlowStartMap.set(nodeId, now);
+    console.log(`[waterAnalytics] Inizio monitoraggio flusso notturno per ${nodeId} alle ${hour}:${timestamp.getMinutes()}`);
+    return null;
+  }
+
+  const startTime = nightFlowStartMap.get(nodeId);
+  const durationMs = now - startTime;
+
+  // Solo se il flusso dura da più di 10 minuti scatta l'allarme
+  if (durationMs < NIGHT_LEAK_DURATION_THRESHOLD_MS) {
+    return null;
+  }
+
+  // Calcola spreco stimato
   const nightHours = NIGHT_HOURS_END - NIGHT_HOURS_START;
-  const estimatedWaste = flowLmin * nightHours * 60; // litri per notte
+  const estimatedWaste = flowLmin * nightHours * 60;
 
   return {
     type: 'night_leak',
     severity: 'critical',
-    title: '🚨 POSSIBILE PERDITA NOTTURNA',
-    message: `Flusso anomalo rilevato alle ${hour}:${String(timestamp.getMinutes()).padStart(2, '0')} - ${flowLmin.toFixed(2)} L/min`,
+    title: '🚨 SOSPETTA PERDITA OCCULTA',
+    message: `Flusso continuo rilevato da oltre 10 minuti tra le 02:00 e le 05:00 - ${flowLmin.toFixed(2)} L/min`,
     estimatedWaste: Math.round(estimatedWaste),
-    action: 'Verificare rubinetti bagni e docce - possibile perdita idrica',
+    action: 'Ispezione urgente: possibile perdita occulta o rubinetto aperto nel Vano Idrico',
     details: {
       detectionTime: timestamp.toISOString(),
-      flowRate: flowLmin,
-      threshold: threshold,
-      nightHours: nightHours
+      durationMin: Math.round(durationMs / 60000),
+      flowRate: flowLmin
     }
   };
 }
