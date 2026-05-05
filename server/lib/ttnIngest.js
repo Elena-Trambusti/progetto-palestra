@@ -489,14 +489,18 @@ async function ingestTtnWebhook(body) {
   }
 
   // WHITELIST RIGOROSA (Senior Security Engineer Mode)
-  if (!AUTHORIZED_DEV_EUIS.includes(devEui)) {
-    console.warn(`[SECURITY_ALERT] Tentativo di ingest da devEUI NON autorizzato: ${devEui}`);
+  const isAuthorized = AUTHORIZED_DEV_EUIS.some(id => id.toUpperCase() === devEui.toUpperCase());
+  
+  if (!isAuthorized) {
+    console.warn(`[SECURITY_ALERT] Ingest negato per ${devEui}. Whitelist autorizzata: ${AUTHORIZED_DEV_EUIS.join(", ")}`);
     return { 
       ok: false, 
       status: 401, 
       detail: { 
         error: "unauthorized_device", 
-        message: "Dispositivo non presente nella whitelist di sicurezza" 
+        message: "Dispositivo non presente nella whitelist di sicurezza",
+        received: devEui,
+        expectedOneOf: AUTHORIZED_DEV_EUIS
       } 
     };
   }
