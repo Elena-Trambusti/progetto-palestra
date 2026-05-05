@@ -12,8 +12,10 @@ const {
   insertMeasurement,
   recordSensorReboot,
   insertSensor,
+  fetchTopology,
 } = pgStore;
 const { maybeNotifyThresholdAlarm } = require("./telegram");
+const { updateTopology } = require("./zonesData");
 const { analyzeWaterData } = require("./waterAnalytics");
 const { analyzeAirData } = require("./airAnalytics");
 const { analyzeMaintenanceTelemetry } = require("./maintenanceAnalytics");
@@ -574,6 +576,16 @@ async function ingestTtnWebhook(body) {
           location: "Generale",
           type: inferred.type !== 'unknown' ? inferred.type : "Ambiente",
         }, client);
+
+        // Task asincrono per rinfrescare la topologia globale
+        setTimeout(async () => {
+          try {
+            const top = await fetchTopology();
+            updateTopology(top);
+          } catch (e) {
+            console.error("[REFRESH_TOPOLOGY_FAIL]", e.message);
+          }
+        }, 100);
       }
     } catch (err) {
       return databaseFailureResponse(err, "provisioning");

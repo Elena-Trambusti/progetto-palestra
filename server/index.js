@@ -2992,7 +2992,17 @@ async function startHttpServer() {
       });
     }
 
-    // Avvia monitoraggi Telegram Bot Intelligente (solo se esplicitamente abilitato)
+    // Sincronizzazione Topologia dal Database (Senior Zero-Touch Implementation)
+    if (pgStore) {
+      try {
+        console.log("  🔄 Sincronizzazione topologia dal database...");
+        const topology = await pgStore.fetchTopology();
+        updateTopology(topology);
+      } catch (err) {
+        console.error("  ❌ Errore sincronizzazione topologia iniziale:", err.message);
+      }
+    }
+
     if (isTelegramConfigured() && TELEGRAM_AUTO_MONITOR) {
       console.log(
         "  🤖 Telegram Bot Intelligente attivo (monitoraggio auto abilitato):",
