@@ -114,12 +114,7 @@ async function notifyCriticalAlarm({
   }
 
   const zone = findZone(zoneId);
-  const locationText = zone
-    ? `📍 ${zone.name}\n🗺️ Piano ${zone.floor}`
-    : `📍 ${zoneName || zoneId}`;
 
-  const valueText = value != null ? `\n📊 Valore: ${value}${unit}` : "";
-  const actionText = action ? `\n\n⚡ <b>Azione consigliata:</b> ${action}` : "";
 
   const header = `🚨 <b>ALLARME CRITICO: ${title}</b>`;
   const separator = '━'.repeat(25);
@@ -182,11 +177,6 @@ async function notifyWarning({
   }
 
   const zone = findZone(zoneId);
-  const locationText = zone
-    ? `📍 ${zone.name}\n🗺️ Piano ${zone.floor}`
-    : `📍 ${zoneName || zoneId}`;
-
-  const valueText = value != null ? `\n📊 Valore: ${value}${unit}` : "";
 
   const header = `⚠️ <b>WARNING: ${title}</b>`;
   const separator = '━'.repeat(25);

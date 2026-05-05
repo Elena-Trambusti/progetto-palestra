@@ -1097,6 +1097,18 @@ async function fetchTopology() {
   });
 }
 
+/**
+ * Registra un evento di riavvio hardware per il sensore
+ */
+async function recordSensorReboot(sensorId) {
+  return withClient(async (client) => {
+    await client.query(
+      `UPDATE sensors SET last_reboot_at = NOW() WHERE id = $1`,
+      [sensorId]
+    );
+  });
+}
+
 module.exports = {
   getPool,
   ensureSchema,
