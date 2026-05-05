@@ -208,11 +208,10 @@ async function withClient(fn) {
 }
 
 function normalizeDevEui(raw) {
-  const hex = String(raw || "")
-    .replace(/\s+/g, "")
-    .replace(/0x/gi, "")
-    .toUpperCase();
-  if (!/^[0-9A-F]{16}$/.test(hex)) return null;
+  const hex = String(raw || "").trim().toUpperCase();
+  if (!hex || hex.length < 4 || hex.length > 32) return null;
+  // Accetta HEX puro (16 caratteri) oppure nomi alfanumerici con trattini (es. node-env-01)
+  if (!/^[0-9A-Z-]+$/.test(hex)) return null;
   return hex;
 }
 
