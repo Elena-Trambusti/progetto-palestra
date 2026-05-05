@@ -10,6 +10,7 @@ const {
   findSensorByDevEui,
   insertMeasurement,
   recordSensorReboot,
+  insertSensor,
 } = require("./postgresStore");
 const { maybeNotifyThresholdAlarm } = require("./telegram");
 const { analyzeWaterData } = require("./waterAnalytics");
@@ -557,12 +558,23 @@ async function ingestTtnWebhook(body) {
   }
 
   if (!sensor) {
-    return {
-      ok: false,
-      status: 403,
-      detail: { error: "unauthorized_device", devEui },
-      log: "Dispositivo non autorizzato",
-    };
+    console.log(`[AUTO_PROVISIONING] Creazione automatica sensore autorizzato: ${devEui}`);
+    try {
+      sensor = await insertSensor({
+        dev_eui: devEui,
+        name: `Nodo ${devEui}`,
+        location: "Generale",
+        type: "Ambiente",
+      });
+    } catch (err) {
+      console.error(`[AUTO_PROVISIONING_ERROR] Fallito per ${devEui}:`, err);
+      return {
+        ok: false,
+        status: 403,
+        detail: { error: "unauthorized_device", devEui },
+        log: "Dispositivo non autorizzato (Provisioning fallito)",
+      };
+    }
   }
 
   // Registra reboot se rilevato poco sopra
