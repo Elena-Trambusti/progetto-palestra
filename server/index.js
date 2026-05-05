@@ -1332,13 +1332,18 @@ function protectDataApis(req, res, next) {
  * senza INGEST_SECRET ma con API_KEY, equivalente via `x-api-key`.
  */
 function ingestAuth(req, res, next) {
+  const providedSecret = req.get("x-ingest-secret");
+  
   if (INGEST_SECRET) {
-    if (req.get("x-ingest-secret") === INGEST_SECRET) return next();
+    if (providedSecret === INGEST_SECRET) return next();
+    
     metrics.ingestRejected += 1;
-    logEvent("warn", "SECURITY_ALERT: Ingest secret errato o mancante", {
+    console.warn(`[AUDIT_FAIL] Ingest 401: ricevuto len(${providedSecret?.length || 0}), atteso len(${INGEST_SECRET.length}). Check spazi o encoding.`);
+    
+    logEvent("warn", "SECURITY_ALERT: Ingest secret errato", {
       ip: req.ip || req.connection.remoteAddress,
-      userAgent: req.get("user-agent"),
-      attemptedPath: req.path,
+      providedLen: providedSecret?.length || 0,
+      expectedLen: INGEST_SECRET.length
     });
     return res.status(401).json({ error: "ingest_unauthorized" });
   }
