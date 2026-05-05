@@ -419,7 +419,7 @@ function isDatabaseTransientError(err) {
   return false;
 }
 
-function databaseFailureResponse(err, phase) {
+function databaseFailureResponse(err, phase, debugData = {}) {
   const transient = isDatabaseTransientError(err);
   const status = transient ? 503 : 500;
   const msg = err && err.message ? err.message : String(err);
@@ -429,15 +429,17 @@ function databaseFailureResponse(err, phase) {
     dbError: true,
     detail: {
       error: transient ? "database_unavailable" : "database_error",
-      sqlMessage: msg, // <--- La verità è qui
+      sqlMessage: msg,
+      debug: debugData,
       hint: transient
-        ? "Database momentaneamente irraggiungibile: la misura non è stata salvata. Riprova quando il servizio è di nuovo disponibile."
-        : "Errore durante l'accesso al database; la misura non è stata salvata.",
+        ? "Database momentaneamente irraggiungibile: la misura non è stata salvata."
+        : "Errore durante l'accesso al database; controlla i campi diagnostici.",
     },
     logMessage: `[ingest:${phase}] ${msg}`,
     logExtra: {
       pgCode: err && err.code,
       errno: err && err.errno,
+      ...(debugData || {})
     },
   };
 }
@@ -685,8 +687,8 @@ async function ingestTtnWebhook(body) {
     await insertMeasurement(measurementData);
   } catch (err) {
     // In caso di errore FK, facciamo una query di emergenza per vedere se l'ID esiste davvero
-    console.error(`[CRITICAL_FK_FAIL] L'ID ${sensorId} ha causato FK violation. Il sensore esiste ancora?`);
-    return databaseFailureResponse(err, "insertMeasurement");
+    console.error(`[CRITICAL_FK_FAIL] L'ID ${sensorId} ha causato FK violation.`);
+    return databaseFailureResponse(err, "insertMeasurement", { sensorId, sensor });
   }
 
   // 3. ANALISI CON CONTROLLO CONCORRENZA (Semaphore)
