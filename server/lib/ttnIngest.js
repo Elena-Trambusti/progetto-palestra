@@ -14,12 +14,17 @@ const { maybeNotifyThresholdAlarm } = require("./telegram");
 const { analyzeWaterData } = require("./waterAnalytics");
 const { analyzeAirData } = require("./airAnalytics");
 const { analyzeMaintenanceTelemetry } = require("./maintenanceAnalytics");
+const { notifyInfo } = require("./telegramNotifier");
 
-/**
- * Schema Joi per validazione payload TTN
- * Rifiuta payload malformati prima del processing
- */
-const ttnIngestSchema = Joi.object({
+// CONFIGURAZIONE RESILIENZA
+const DEV_EUI_RATE_LIMIT_MAP = new Map();
+const MIN_INTERVAL_MS = 5000;
+const MAX_CONCURRENT_ANALYSES = 5;
+let activeAnalyses = 0;
+const analysisQueue = [];
+
+const LAST_FRAME_COUNTERS = new Map();
+const AUTHORIZED_DEV_EUIS = ["node-water-01", "node-env-01", "gw-livorno-01"];
   end_device_ids: Joi.object({
     dev_eui: Joi.string().hex().length(16).required(),
     device_id: Joi.string().allow("").optional(),
@@ -500,17 +505,40 @@ async function ingestTtnWebhook(body) {
     };
   }
 
-  // DEDUPLICAZIONE RIGOROSA
+  // 1. RATE LIMITING PER devEUI (Protegge il server dai nodi "impazziti")
+  const lastSeen = DEV_EUI_RATE_LIMIT_MAP.get(devEui) || 0;
+  const nowMs = Date.now();
+  if (nowMs - lastSeen < MIN_INTERVAL_MS) {
+    return { 
+      ok: false, 
+      status: 429, 
+      detail: { error: "rate_limit_exceeded", devEui, retryAfter: "5s" } 
+    };
+  }
+  DEV_EUI_RATE_LIMIT_MAP.set(devEui, nowMs);
+
+  // 2. DEDUPLICAZIONE E REBOOT DETECTION
   const fCnt = validatedData.uplink_message?.f_cnt;
   if (fCnt !== undefined) {
     const lastCnt = LAST_FRAME_COUNTERS.get(devEui);
-    if (lastCnt !== undefined && fCnt <= lastCnt) {
-      // È un duplicato (stesso f_cnt da altro gateway) o un pacchetto arrivato fuori ordine
-      return { 
-        ok: false, 
-        status: 200, // Ritorniamo 200 perché TTN deve pensare che sia andata bene, ma noi lo scartiamo
-        detail: { error: "duplicate_frame", devEui, fCnt, lastCnt } 
-      };
+    if (lastCnt !== undefined) {
+      // Caso A: Reboot Hardware (Contatore tornato a zero)
+      if (fCnt < 5 && lastCnt > 100) {
+        console.log(`[INFO] Rilevato reboot hardware per nodo: ${devEui}`);
+        void notifyInfo({
+          title: "Rilevato Riavvio Hardware",
+          message: `Il sensore ha resettato il contatore (da ${lastCnt} a ${fCnt}). Sessione ripristinata.`,
+          nodeId: devEui
+        }).catch(() => {});
+      } 
+      // Caso B: Duplicato o Fuori Ordine
+      else if (fCnt <= lastCnt) {
+        return { 
+          ok: false, 
+          status: 200, 
+          detail: { error: "duplicate_frame", devEui, fCnt, lastCnt } 
+        };
+      }
     }
     LAST_FRAME_COUNTERS.set(devEui, fCnt);
   }
@@ -598,8 +626,6 @@ async function ingestTtnWebhook(body) {
 
   // Estrai dati specifici per tipo di sensore (usando il tipo dal DB)
   const sensorInfo = extractSensorData(devEui, decoded, sensor);
-  // Estrai dati specifici per tipo di sensore (usando il tipo dal DB)
-  const sensorInfo = extractSensorData(devEui, decoded, sensor);
 
   const measurementData = {
     sensorId: sensor.id,
@@ -625,39 +651,57 @@ async function ingestTtnWebhook(body) {
     return databaseFailureResponse(err, "insertMeasurement");
   }
 
-  const numericValue = Number(value);
-  void maybeNotifyThresholdAlarm(sensor, numericValue).catch((err) => {
-    console.warn("[telegram]", err && err.message ? err.message : err);
-  });
+  // 3. ANALISI CON CONTROLLO CONCORRENZA (Semaphore)
+  // Protegge il pool di PostgreSQL limitando le analisi parallele a 5
+  const runAnalysis = async () => {
+    try {
+      if (sensorInfo.type === 'water') {
+        await analyzeWaterPacket(sensor, devEui, decoded, tsUtc);
+      }
+      if (sensorInfo.type === 'air') {
+        await analyzeAirPacket(sensor, devEui, sensorInfo.data, tsUtc);
+      }
+      await analyzeMaintenanceTelemetry({
+        sensorId: sensor.id,
+        devEui,
+        sensorName: sensor.name,
+        location: sensor.location,
+        batteryLevel: battery,
+        rssi: radio.rssi,
+        timestamp: tsUtc
+      });
+    } catch (err) {
+      console.error(`[analysisQueue] Errore durante analisi ${devEui}:`, err);
+    } finally {
+      activeAnalyses--;
+      processNextAnalysis();
+    }
+  };
 
-  // "Misuratore dati LORA" - Analisi intelligente per nodi acqua
-  if (sensorInfo.type === 'water') {
-    void analyzeWaterPacket(sensor, devEui, decoded, tsUtc).catch((err) => {
-      console.warn("[waterAnalytics]", err && err.message ? err.message : err);
-    });
-  }
-  
-  // "Misuratore dati LORA Aria" - Analisi intelligente per nodi aria
-  if (sensorInfo.type === 'air') {
-    void analyzeAirPacket(sensor, devEui, sensorInfo.data, tsUtc).catch((err) => {
-      console.warn("[airAnalytics]", err && err.message ? err.message : err);
-    });
-  }
-  
-  // "Misuratore dati LORA Manutenzione" - Analisi telemetria batteria e segnale
-  void analyzeMaintenanceTelemetry({
-    sensorId: sensor.id,
-    devEui,
-    sensorName: sensor.name,
-    location: sensor.location,
-    batteryLevel: battery,
-    rssi: radio.rssi,
-    timestamp: tsUtc
-  }).catch((err) => {
-    console.warn("[maintenance]", err && err.message ? err.message : err);
-  });
+  const processNextAnalysis = () => {
+    if (analysisQueue.length > 0 && activeAnalyses < MAX_CONCURRENT_ANALYSES) {
+      const nextTask = analysisQueue.shift();
+      activeAnalyses++;
+      nextTask();
+    }
+  };
 
-    };
+  // Accoda l'analisi e avvia la gestione della coda
+  analysisQueue.push(runAnalysis);
+  processNextAnalysis();
+
+  return {
+    ok: true,
+    status: 200,
+    detail: {
+      ok: true,
+      sensorId: sensor.id,
+      devEui,
+      value: numericValue,
+      timestampUtc: tsUtc.toISOString(),
+    },
+  };
+
   } catch (err) {
     console.error(`[AUDIT_FAIL] Eccezione non gestita durante ingest: ${err.message}`, err.stack);
     return {

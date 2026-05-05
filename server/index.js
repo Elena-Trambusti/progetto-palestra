@@ -1969,7 +1969,7 @@ app.post("/api/ingest/reading", limitIngest, ingestAuth, async (req, res) => {
  * Webhook The Things Network: accetta il JSON uplink, valida dev_eui in anagrafica,
  * decodifica il payload binario e inserisce una riga in measurements.
  */
-app.post("/api/ingest", limitIngest, ingestAuth, async (req, res) => {
+app.post("/api/ingest", ingestAuth, async (req, res) => {
   if (!pgStore) {
     return res.status(503).json({
       error: "database_required",
