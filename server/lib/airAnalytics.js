@@ -23,7 +23,7 @@ const BUSINESS_HOURS_END = 22; // 22:00
  * @returns {Promise<Object>} Risultato analisi con alert e metriche
  */
 async function analyzeAirData(params) {
-  const { nodeId, co2, voc, lux, timestamp, maxThreshold } = params;
+  const { nodeId, zoneId, location, co2, voc, lux, timestamp, maxThreshold } = params;
   const alerts = [];
   const metrics = { co2, voc, lux };
   const analysisTime = new Date(timestamp || Date.now());
@@ -51,7 +51,7 @@ async function analyzeAirData(params) {
     
     // Invia notifica Telegram immediata
     await notifyCriticalAlarm({
-      zoneId: nodeId, // Usiamo nodeId come fallback se zoneId non è disponibile
+      zoneId: zoneId || nodeId, 
       type: 'co2_critical',
       title: co2Alert.title,
       message: co2Alert.message,
@@ -100,7 +100,7 @@ async function analyzeAirData(params) {
     
     // Invia notifica Telegram di avviso
     await notifyWarning({
-      zoneId: nodeId,
+      zoneId: zoneId || nodeId,
       type: 'light_insufficient',
       title: lightAlert.title,
       message: lightAlert.message,
@@ -125,7 +125,7 @@ async function analyzeAirData(params) {
     
     // Invia notifica Telegram
     await notifyWarning({
-      zoneId: nodeId,
+      zoneId: zoneId || nodeId,
       type: 'voc_high',
       title: vocAlert.title,
       message: vocAlert.message,

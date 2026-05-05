@@ -743,10 +743,12 @@ async function analyzeAirPacket(sensor, devEui, airData, timestamp) {
     // Esegui analisi intelligente aria
     const analysis = await analyzeAirData({
       nodeId: devEui,
+      zoneId: sensor.location,
+      location: sensor.location,
       co2: airData.co2Ppm || null,
       voc: airData.vocIndex || null,
       lux: airData.lux || null,
-      timestamp,
+      timestamp: timestamp,
       maxThreshold: sensor.max_threshold || null
     });
 
