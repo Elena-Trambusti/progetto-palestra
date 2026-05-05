@@ -356,11 +356,11 @@ function parseOptionalThreshold(val) {
   return Number.isFinite(n) ? n : null;
 }
 
-async function insertSensor(sensor) {
+async function insertSensor(sensor, client = null) {
   const devEui = normalizeDevEui(sensor.dev_eui);
   if (!devEui) throw new Error("dev_eui non valido");
 
-  return withClient(async (c) => {
+  const exec = async (c) => {
     try {
       const r = await c.query(
         `INSERT INTO sensors (dev_eui, name, location, type, min_threshold, max_threshold)
@@ -382,7 +382,9 @@ async function insertSensor(sensor) {
       console.error("[DB_INSERT_SENSOR_ERROR]", e.message);
       throw e;
     }
-  });
+  };
+
+  return client ? await exec(client) : await withClient(exec);
 }
 
 async function updateSensor(id, patch) {
@@ -472,13 +474,14 @@ async function deleteSensor(id) {
   });
 }
 
-async function findSensorByDevEui(devEui) {
+async function findSensorByDevEui(devEui, client = null) {
   const dev = normalizeDevEui(devEui);
   if (!dev) return null;
-  return withClient(async (c) => {
+  const exec = async (c) => {
     const r = await c.query(`SELECT * FROM sensors WHERE dev_eui = $1`, [dev]);
     return r.rows[0] || null;
-  });
+  };
+  return client ? await exec(client) : await withClient(exec);
 }
 
 /**
@@ -534,27 +537,28 @@ function measurementTimestampToUtcIso(timestamp) {
   return d.toISOString();
 }
 
-async function insertMeasurement({
-  sensorId,
-  value,
-  co2,
-  voc,
-  lux,
-  sensorType,
-  rssi,
-  snr,
-  battery,
-  batteryLevel,
-  timestamp,
-}) {
+async function insertMeasurement(data, client = null) {
+  const {
+    sensorId,
+    value,
+    co2,
+    voc,
+    lux,
+    sensorType,
+    rssi,
+    snr,
+    battery,
+    batteryLevel,
+    timestamp,
+  } = data;
   const tsIsoUtc = measurementTimestampToUtcIso(timestamp);
-  // Supporta sia battery (legacy) che batteryLevel (nuovo schema)
   const battValue = batteryLevel != null ? batteryLevel : battery;
-  const result = await withClient(async (c) => {
+
+  const exec = async (c) => {
     try {
       await c.query(
         `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery_level, timestamp)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)`,
         [
           sensorId,
           Number(value || 0),
@@ -574,19 +578,14 @@ async function insertMeasurement({
       console.error("Query Context:", { sensorId, value, co2, tsIsoUtc });
       throw err;
     }
-  });
+  };
 
-  // Invalida cache misure per questo sensore
-  const keys = queryCache.keys();
-  keys.forEach((key) => {
-    if (key.startsWith("measurements:latest:")) {
-      if (key.includes(sensorId)) {
-        queryCache.del(key);
-      }
-    }
-  });
+  await (client ? exec(client) : withClient(exec));
 
-  return result;
+  // Invalida cache misure
+  if (!client) {
+    queryCache.del(`measurements:latest:${sensorId}`);
+  }
 }
 
 async function historySamplesForLocation(location, limit, range) {

@@ -556,140 +556,91 @@ async function ingestTtnWebhook(body) {
     LAST_FRAME_COUNTERS.set(devEui, fCnt);
   }
 
-  let sensor;
-  try {
-    sensor = await findSensorByDevEui(devEui);
-  } catch (err) {
-    return databaseFailureResponse(err, "findSensorByDevEui");
-  }
-
-  if (!sensor) {
-    console.log(`[AUTO_PROVISIONING] Creazione automatica sensore autorizzato: ${devEui}`);
+  // 2. SESSIONE ATOMICA (Senior Architect Implementation)
+  // Usiamo un singolo client per tutta la pipeline per garantire visibilità e consistenza
+  return await pgStore.withClient(async (client) => {
+    let sensor;
     try {
-      sensor = await insertSensor({
-        dev_eui: devEui,
-        name: `Nodo ${devEui}`,
-        location: "Generale",
-        type: "Ambiente",
-      });
+      // 2a. Ricerca Sensore (Case-Insensitive grazie a normalizeDevEui)
+      sensor = await pgStore.findSensorByDevEui(devEui, client);
+      
+      // 2b. Auto-Provisioning Idempotente
+      if (!sensor) {
+        console.log(`[AUTO_PROVISIONING] Creazione nodo autorizzato: ${devEui}`);
+        sensor = await pgStore.insertSensor({
+          dev_eui: devEui,
+          name: `Nodo ${devEui}`,
+          location: "Generale",
+          type: "Ambiente",
+        }, client);
+      }
     } catch (err) {
-      console.error(`[AUTO_PROVISIONING_ERROR] Fallito per ${devEui}:`, err);
-      return {
-        ok: false,
-        status: 403,
-        detail: { error: "unauthorized_device", devEui },
-        log: "Dispositivo non autorizzato (Provisioning fallito)",
-      };
+      return databaseFailureResponse(err, "provisioning", { devEui });
     }
-  }
 
-  // Registra reboot se rilevato poco sopra
-  const fCntCheck = validatedData.uplink_message?.f_cnt;
-  const lastCntCheck = LAST_FRAME_COUNTERS.get(devEui);
-  if (fCntCheck < 5 && lastCntCheck === fCntCheck) { // Abbiamo appena aggiornato Map con 0/1/2...
-    // Se era un reboot, l'abbiamo rilevato sopra. 
-    // Per semplicità, se fCnt è molto basso, registriamo l'evento nel DB
-    void recordSensorReboot(sensor.id).catch(e => console.error("[DB_REBOOT_FAIL]", e));
-  }
-
-  let value = pickDecodedNumeric(decoded);
-  let battery = pickBatteryDecoded(decoded);
-
-  const hasDecodedValue = value != null && Number.isFinite(Number(value));
-  const hasBinary = buf != null && buf.length > 0;
-
-  if (!hasDecodedValue) {
-    if (!payloadMeta.ok) {
-      return {
-        ok: false,
-        status: 400,
-        detail: {
-          error: "payload_raw_invalid",
-          reason: payloadMeta.reason || "payload_invalid",
-          devEui,
-          hint:
-            "Payload grezzo assente, vuoto o non decodificabile in Base64. Verifica frm_payload / payload_raw sul webhook TTN.",
-        },
-      };
+    if (!sensor || !sensor.id) {
+      return { ok: false, status: 500, detail: { error: "sensor_identity_loss", devEui } };
     }
-    if (!hasBinary) {
-      return {
-        ok: false,
-        status: 400,
-        detail: {
-          error: "payload_raw_empty",
-          devEui,
-          hint:
-            "Nessun byte nel payload dopo la decodifica Base64 e nessun decoded_payload numerico. Controlla il device o il formatter TTN.",
-        },
-      };
-    }
-    const dec = decodeBinaryForSensorType(buf, sensor.type);
-    if (dec.decodeRangeError) {
-      return {
-        ok: false,
-        status: 400,
-        detail: {
-          error: "decode_binary_range",
-          devEui,
-          hint:
-            "Payload binario troppo corto o non allineato al decoder per questo tipo di sensore (lettura oltre i byte disponibili).",
-        },
-      };
-    }
-    value = dec.value;
-    if (battery == null && dec.battery != null) battery = dec.battery;
-  }
 
-  if (value == null || !Number.isFinite(Number(value))) {
-    return {
-      ok: false,
-      status: 400,
-      detail: {
-        error: "decode_failed",
-        devEui,
-        hint:
-          "Impossibile ricavare un valore numerico da decoded_payload né dal payload binario.",
-      },
+    const sensorId = parseInt(sensor.id);
+    let value = pickDecodedNumeric(decoded);
+    let battery = pickBatteryDecoded(decoded);
+
+    // Gestione Binary Fallback
+    if (value == null && buf && buf.length > 0) {
+      const dec = decodeBinaryForSensorType(buf, sensor.type);
+      value = dec.value;
+      if (battery == null) battery = dec.battery;
+    }
+
+    // Sanity Check Valore Numerico
+    if (value == null || !isFinite(Number(value))) {
+       return { ok: false, status: 400, detail: { error: "numeric_value_missing", devEui } };
+    }
+
+    const radio = sanitizeRadio(rssi, snr);
+    const tsUtc = parseIngestTimestampUtc(tsRaw);
+    const sensorInfo = extractSensorData(devEui, decoded, sensor);
+
+    const measurementData = {
+      sensorId: sensorId,
+      value: Number(value),
+      sensorType: sensorInfo.sensorType || sensor.type,
+      rssi: radio.rssi,
+      snr: radio.snr,
+      batteryLevel: battery,
+      timestamp: tsUtc,
+      co2: sensorInfo.type === 'air' ? (sensorInfo.data.co2Ppm || null) : null,
+      voc: sensorInfo.type === 'air' ? (sensorInfo.data.vocIndex || null) : null,
+      lux: sensorInfo.type === 'air' ? (sensorInfo.data.lux || null) : null,
     };
-  }
 
-  const radio = sanitizeRadio(rssi, snr);
-  const tsUtc = parseIngestTimestampUtc(tsRaw);
+    try {
+      await pgStore.insertMeasurement(measurementData, client);
+    } catch (err) {
+      return databaseFailureResponse(err, "insertMeasurement", { sensorId, sensor });
+    }
 
-  // Estrai dati specifici per tipo di sensore (usando il tipo dal DB)
-  const sensorInfo = extractSensorData(devEui, decoded, sensor);
+    // Ritorno successo e avvio analisi asincrona
+    setTimeout(() => {
+      analysisQueue.push(async () => {
+        try {
+          if (sensorInfo.type === 'water') await analyzeWaterPacket(sensor, devEui, decoded, tsUtc);
+          if (sensorInfo.type === 'air') await analyzeAirPacket(sensor, devEui, sensorInfo.data, tsUtc);
+        } finally {
+          activeAnalyses--;
+          processNextAnalysis();
+        }
+      });
+      processNextAnalysis();
+    }, 0);
 
-  // VERIFICA INTEGRITÀ ID (Senior Architect Audit)
-  const sensorId = parseInt(sensor.id);
-  console.log(`[INGEST_AUDIT] Verificando sensore ID: ${sensorId} per devEui: ${devEui}`);
-  console.log(`[INGEST_AUDIT] Oggetto sensore completo:`, JSON.stringify(sensor));
-
-  const measurementData = {
-    sensorId: sensorId,
-    value: isFinite(Number(value)) ? Number(value) : 0,
-    sensorType: sensorInfo.sensorType || sensor.type,
-    rssi: radio.rssi,
-    snr: radio.snr,
-    battery,
-    batteryLevel: battery, // Nuovo schema telemetria
-    timestamp: tsUtc,
-  };
-  
-  // Aggiungi campi specifici per sensori aria
-  if (sensorInfo.type === 'air') {
-    measurementData.co2 = sensorInfo.data.co2Ppm || null;
-    measurementData.voc = sensorInfo.data.vocIndex || null;
-    measurementData.lux = sensorInfo.data.lux || null;
-  }
-
-  try {
-    await insertMeasurement(measurementData);
-  } catch (err) {
-    // In caso di errore FK, facciamo una query di emergenza per vedere se l'ID esiste davvero
-    console.error(`[CRITICAL_FK_FAIL] L'ID ${sensorId} ha causato FK violation.`);
-    return databaseFailureResponse(err, "insertMeasurement", { sensorId, sensor });
-  }
+    return {
+      ok: true,
+      status: 200,
+      detail: { ok: true, sensorId, devEui, value, timestamp: tsUtc.toISOString() }
+    };
+  });
 
   // 3. ANALISI CON CONTROLLO CONCORRENZA (Semaphore)
   // Protegge il pool di PostgreSQL limitando le analisi parallele a 5
