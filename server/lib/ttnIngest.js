@@ -568,11 +568,13 @@ async function ingestTtnWebhook(body) {
       // 2b. Auto-Provisioning Idempotente
       if (!sensor) {
         console.log(`[AUTO_PROVISIONING] Creazione nodo autorizzato: ${devEui}`);
+        // Determina il tipo in base al nome del device
+        const inferred = extractSensorData(devEui, {}, null);
         sensor = await pgStore.insertSensor({
           dev_eui: devEui,
           name: `Nodo ${devEui}`,
           location: "Generale",
-          type: "Ambiente",
+          type: inferred.type !== 'unknown' ? inferred.type : "Ambiente",
         }, client);
       }
     } catch (err) {
@@ -627,7 +629,9 @@ async function ingestTtnWebhook(body) {
       analysisQueue.push(async () => {
         try {
           if (sensorInfo.type === 'water') await analyzeWaterPacket(sensor, devEui, decoded, tsUtc);
-          if (sensorInfo.type === 'air') await analyzeAirPacket(sensor, devEui, sensorInfo.data, tsUtc);
+          if (sensorInfo.type === 'air' || sensorInfo.type === 'Ambiente') {
+            await analyzeAirPacket(sensor, devEui, sensorInfo.data, tsUtc);
+          }
         } finally {
           activeAnalyses--;
           processNextAnalysis();
