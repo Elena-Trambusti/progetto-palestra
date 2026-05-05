@@ -60,9 +60,18 @@ function metricMeta(kind) {
   }
 }
 
-function uplinkLabel(status, awaiting) {
+function isRecentlyRebooted(lastRebootAt) {
+  if (!lastRebootAt) return false;
+  const rebootTime = new Date(lastRebootAt).getTime();
+  const now = Date.now();
+  const twoHoursMs = 2 * 60 * 60 * 1000;
+  return now - rebootTime < twoHoursMs;
+}
+
+function uplinkLabel(status, awaiting, recentlyRebooted) {
   if (awaiting) return "IN ATTESA";
   if (status === "offline") return "OFFLINE";
+  if (recentlyRebooted) return "REBOOT";
   if (status === "stale") return "RITARDO";
   return "ONLINE";
 }
@@ -94,11 +103,19 @@ export default function SensorDynamicGrid({ cards, loading }) {
       <div className="env-panel__grid">
         {cards.map((c) => {
           const awaiting = isAwaitingFirstMeasurement(c);
+          const recentlyRebooted = isRecentlyRebooted(c.lastRebootAt);
           const kind = sensorKind(c.type);
           const { unit, Icon, decimals } = metricMeta(kind);
+          
+          const statusColor = recentlyRebooted ? "#fbbf24" : (c.status === "offline" ? "#ef4444" : "#10b981");
+
           return (
             <div key={c.id ?? c.devEui} className="env-panel__tile mono">
-              <Icon className="env-panel__tile-icon" aria-hidden />
+              <Icon 
+                className="env-panel__tile-icon" 
+                aria-hidden 
+                style={recentlyRebooted ? { color: "#fbbf24", filter: "drop-shadow(0 0 4px rgba(251, 191, 36, 0.4))" } : {}}
+              />
               <span className="env-panel__label">{c.name}</span>
               <span className="env-panel__unit" style={{ fontSize: "0.72rem", opacity: 0.88 }}>
                 {c.type} · {c.devEui}
@@ -124,7 +141,7 @@ export default function SensorDynamicGrid({ cards, loading }) {
                   Soglia {c.thresholdAlarm === "low" ? "MIN" : "MAX"}
                 </span>
               ) : (
-                <span className="env-panel__unit">&nbsp;</span>
+                <span className="env-panel__unit" style={recentlyRebooted ? { color: "#fbbf24" } : {}}>&nbsp;</span>
               )}
               <div
                 className="mono"
@@ -146,7 +163,9 @@ export default function SensorDynamicGrid({ cards, loading }) {
                   <Battery size={12} style={{ verticalAlign: "middle", marginRight: 2 }} />
                   {fmt(c.battery, 0)}%
                 </span>
-                <span style={{ fontWeight: 600 }}>{uplinkLabel(c.status, awaiting)}</span>
+                <span style={{ fontWeight: 600, color: statusColor }}>
+                  {uplinkLabel(c.status, awaiting, recentlyRebooted)}
+                </span>
               </div>
               {!awaiting && c.lastTimestamp ? (
                 <span className="env-panel__unit" style={{ marginTop: "0.15rem", fontSize: "0.65rem" }}>

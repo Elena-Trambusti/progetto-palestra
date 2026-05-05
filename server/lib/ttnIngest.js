@@ -9,6 +9,7 @@ const {
   normalizeDevEui,
   findSensorByDevEui,
   insertMeasurement,
+  recordSensorReboot,
 } = require("./postgresStore");
 const { maybeNotifyThresholdAlarm } = require("./telegram");
 const { analyzeWaterData } = require("./waterAnalytics");
@@ -504,6 +505,8 @@ async function ingestTtnWebhook(body) {
   const lastSeen = DEV_EUI_RATE_LIMIT_MAP.get(devEui) || 0;
   const nowMs = Date.now();
   if (nowMs - lastSeen < MIN_INTERVAL_MS) {
+    // Log silenzioso per non intasare Render
+    console.debug(`[DEBUG] Rate limit per ${devEui} (${nowMs - lastSeen}ms)`);
     return { 
       ok: false, 
       status: 429, 
@@ -519,15 +522,19 @@ async function ingestTtnWebhook(body) {
     if (lastCnt !== undefined) {
       // Caso A: Reboot Hardware (Contatore tornato a zero)
       if (fCnt < 5 && lastCnt > 100) {
-        console.log(`[INFO] Rilevato reboot hardware per nodo: ${devEui}`);
+        console.log(`[REBOOT_DETECTED] Rilevato reboot hardware per nodo: ${devEui}`);
+        // Nota: sensor viene recuperato dopo, quindi sposto la registrazione DB
+        // sotto la chiamata findSensorByDevEui
+        
         void notifyInfo({
           title: "Rilevato Riavvio Hardware",
-          message: `Il sensore ha resettato il contatore (da ${lastCnt} a ${fCnt}). Sessione ripristinata.`,
+          message: `Il sensore ha resettato il contatore (da ${lastCnt} a ${fCnt}).\nIl sistema ha ripristinato la sessione automaticamente.`,
           nodeId: devEui
         }).catch(() => {});
       } 
       // Caso B: Duplicato o Fuori Ordine
       else if (fCnt <= lastCnt) {
+        console.debug(`[DEBUG] Duplicato scartato per ${devEui}: f_cnt ${fCnt} <= ${lastCnt}`);
         return { 
           ok: false, 
           status: 200, 
@@ -552,6 +559,15 @@ async function ingestTtnWebhook(body) {
       detail: { error: "unauthorized_device", devEui },
       log: "Dispositivo non autorizzato",
     };
+  }
+
+  // Registra reboot se rilevato poco sopra
+  const fCntCheck = validatedData.uplink_message?.f_cnt;
+  const lastCntCheck = LAST_FRAME_COUNTERS.get(devEui);
+  if (fCntCheck < 5 && lastCntCheck === fCntCheck) { // Abbiamo appena aggiornato Map con 0/1/2...
+    // Se era un reboot, l'abbiamo rilevato sopra. 
+    // Per semplicità, se fCnt è molto basso, registriamo l'evento nel DB
+    void recordSensorReboot(sensor.id).catch(e => console.error("[DB_REBOOT_FAIL]", e));
   }
 
   let value = pickDecodedNumeric(decoded);

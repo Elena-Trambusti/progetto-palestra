@@ -87,6 +87,7 @@ async function ensureSchema(client) {
       total_liters_flowed DOUBLE PRECISION DEFAULT 0,
       night_flow_threshold DOUBLE PRECISION DEFAULT 0.1,
       filter_maintenance_limit DOUBLE PRECISION DEFAULT 10000,
+      last_reboot_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -781,7 +782,7 @@ async function buildDashboardPayload(location) {
   return withClient(async (c) => {
     const allSensors = (
       await c.query(
-        `SELECT id, dev_eui, name, location, type, min_threshold, max_threshold
+        `SELECT id, dev_eui, name, location, type, min_threshold, max_threshold, last_reboot_at
          FROM sensors ORDER BY location ASC, name ASC`,
       )
     ).rows;
@@ -816,6 +817,7 @@ async function buildDashboardPayload(location) {
         thresholdAlarm: tf,
         minThreshold: s.min_threshold == null ? null : Number(s.min_threshold),
         maxThreshold: s.max_threshold == null ? null : Number(s.max_threshold),
+        lastRebootAt: s.last_reboot_at ? new Date(s.last_reboot_at).toISOString() : null,
       };
     });
 
@@ -872,6 +874,7 @@ async function buildDashboardPayload(location) {
         snr: last?.snr != null ? Number(last.snr) : null,
         uplinkAt: ts,
         status: uplinkStatus(ts),
+        lastRebootAt: s.last_reboot_at ? new Date(s.last_reboot_at).toISOString() : null,
         metrics: {
           temperatureC: String(s.type || "")
             .toLowerCase()
@@ -1120,5 +1123,6 @@ module.exports = {
   incrementTotalLiters,
   getWaterThresholds,
   resetTotalLiters,
+  recordSensorReboot,
   fetchTopology,
 };

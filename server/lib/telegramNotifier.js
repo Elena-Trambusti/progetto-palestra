@@ -121,17 +121,29 @@ async function notifyCriticalAlarm({
   const valueText = value != null ? `\n📊 Valore: ${value}${unit}` : "";
   const actionText = action ? `\n\n⚡ <b>Azione consigliata:</b> ${action}` : "";
 
+  const header = `🚨 <b>ALLARME CRITICO: ${title}</b>`;
+  const separator = '━'.repeat(25);
+  
+  const zoneInfo = zone
+    ? `📍 <b>Zona:</b> [${zone.id.toUpperCase()}] ${zone.name}\n🗺️ <b>Piano:</b> ${zone.floor}`
+    : `📍 <b>Zona:</b> ${zoneName || zoneId}`;
+
+  const valueText = value != null ? `📊 <b>Valore:</b> ${value}${unit}` : "";
+  const actionText = action ? `\n⚡ <b>Azione:</b> ${action}` : "";
+
   const text = [
-    `🚨 <b>CRITICO: ${title}</b>`,
+    header,
+    separator,
     "",
-    message,
+    `📝 ${message}`,
+    "",
     valueText,
-    "",
-    locationText,
+    zoneInfo,
     actionText,
     "",
+    separator,
     `🕐 ${formatItalianTime()} (ITA)`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const result = await sendTelegramMessage(text);
   if (result.ok) {
@@ -176,16 +188,27 @@ async function notifyWarning({
 
   const valueText = value != null ? `\n📊 Valore: ${value}${unit}` : "";
 
+  const header = `⚠️ <b>WARNING: ${title}</b>`;
+  const separator = '━'.repeat(25);
+  
+  const zoneInfo = zone
+    ? `📍 <b>Zona:</b> [${zone.id.toUpperCase()}] ${zone.name}\n🗺️ <b>Piano:</b> ${zone.floor}`
+    : `📍 <b>Zona:</b> ${zoneName || zoneId}`;
+
+  const valueText = value != null ? `📊 <b>Valore:</b> ${value}${unit}` : "";
+
   const text = [
-    `⚠️ <b>WARNING: ${title}</b>`,
+    header,
+    separator,
     "",
-    message,
+    `📝 ${message}`,
+    "",
     valueText,
+    zoneInfo,
     "",
-    locationText,
-    "",
+    separator,
     `🕐 ${formatItalianTime()} (ITA)`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const result = await sendTelegramMessage(text);
   if (result.ok) {
@@ -410,14 +433,21 @@ async function notifyInfo({ title, message, nodeId, metrics }) {
     return { ok: false, cooldown: true };
   }
 
+  const separator = '━'.repeat(25);
+  const header = `ℹ️ <b>INFO: ${title}</b>`;
+  
+  const zoneTag = zone ? `[${zone.name.toUpperCase()}]` : `[${zoneName || nodeId}]`;
+
   const text = [
-    `ℹ️ <b>${title}</b>`,
+    `${header} ${zoneTag}`,
+    separator,
     "",
-    `📡 Nodo: ${nodeName} (${nodeId})`,
-    `📍 ${zoneName}\n🗺️ Piano ${floor}`,
+    `📝 ${message}`,
     "",
-    message,
+    `📡 <b>Nodo:</b> ${nodeName} (${nodeId})`,
+    `📍 <b>Zona:</b> ${zoneName}`,
     "",
+    separator,
     `🕐 ${formatItalianTime()} (ITA)`,
   ].join("\n");
 
