@@ -624,7 +624,7 @@ async function ingestTtnWebhook(body) {
       return databaseFailureResponse(err, "insertMeasurement", { sensorId, sensor });
     }
 
-    // Ritorno successo e avvio analisi asincrona
+    // Avvio analisi asincrona (motore ripristinato)
     setTimeout(() => {
       analysisQueue.push(async () => {
         try {
@@ -654,6 +654,17 @@ async function ingestTtnWebhook(body) {
     detail: { error: "internal_server_error", message: "Errore imprevisto durante l'elaborazione del segnale." }
   };
 }
+}
+
+/**
+ * Gestore coda analisi (Motore)
+ */
+function processNextAnalysis() {
+  if (analysisQueue.length > 0 && activeAnalyses < MAX_CONCURRENT_ANALYSES) {
+    const nextTask = analysisQueue.shift();
+    activeAnalyses++;
+    nextTask().catch(err => console.error("[processNextAnalysis] Crash task:", err));
+  }
 }
 
 /**
