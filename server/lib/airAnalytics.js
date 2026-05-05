@@ -51,10 +51,13 @@ async function analyzeAirData(params) {
     
     // Invia notifica Telegram immediata
     await notifyCriticalAlarm({
+      zoneId: nodeId, // Usiamo nodeId come fallback se zoneId non è disponibile
+      type: 'co2_critical',
       title: co2Alert.title,
       message: co2Alert.message,
-      nodeId,
-      metrics: co2Alert.metrics
+      value: co2,
+      unit: " ppm",
+      action: "Aprire subito le finestre per ricambio aria."
     });
   }
   // Analisi CO2 - Avviso
@@ -73,9 +76,9 @@ async function analyzeAirData(params) {
     
     // Invia notifica Telegram informativa
     await notifyInfo({
+      nodeId,
       title: co2Warning.title,
       message: co2Warning.message,
-      nodeId,
       metrics: co2Warning.metrics
     });
   }
