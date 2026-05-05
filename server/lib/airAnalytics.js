@@ -100,10 +100,12 @@ async function analyzeAirData(params) {
     
     // Invia notifica Telegram di avviso
     await notifyWarning({
+      zoneId: nodeId,
+      type: 'light_insufficient',
       title: lightAlert.title,
       message: lightAlert.message,
-      nodeId,
-      metrics: lightAlert.metrics
+      value: lux,
+      unit: " lux"
     });
   }
 
@@ -123,10 +125,12 @@ async function analyzeAirData(params) {
     
     // Invia notifica Telegram
     await notifyWarning({
+      zoneId: nodeId,
+      type: 'voc_high',
       title: vocAlert.title,
       message: vocAlert.message,
-      nodeId,
-      metrics: vocAlert.metrics
+      value: voc,
+      unit: " (index)"
     });
   }
 

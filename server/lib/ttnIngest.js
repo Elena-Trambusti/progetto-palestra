@@ -420,7 +420,7 @@ function isDatabaseTransientError(err) {
   return false;
 }
 
-function databaseFailureResponse(err, phase, debugData = {}) {
+function databaseFailureResponse(err, phase) {
   const transient = isDatabaseTransientError(err);
   const status = transient ? 503 : 500;
   const msg = err && err.message ? err.message : String(err);
@@ -431,16 +431,14 @@ function databaseFailureResponse(err, phase, debugData = {}) {
     detail: {
       error: transient ? "database_unavailable" : "database_error",
       sqlMessage: msg,
-      debug: debugData,
       hint: transient
         ? "Database momentaneamente irraggiungibile: la misura non è stata salvata."
-        : "Errore durante l'accesso al database; controlla i campi diagnostici.",
+        : "Errore durante l'accesso al database.",
     },
     logMessage: `[ingest:${phase}] ${msg}`,
     logExtra: {
       pgCode: err && err.code,
       errno: err && err.errno,
-      ...(debugData || {})
     },
   };
 }
@@ -578,7 +576,7 @@ async function ingestTtnWebhook(body) {
         }, client);
       }
     } catch (err) {
-      return databaseFailureResponse(err, "provisioning", { devEui });
+      return databaseFailureResponse(err, "provisioning");
     }
 
     if (!sensor || !sensor.id) {
@@ -586,6 +584,14 @@ async function ingestTtnWebhook(body) {
     }
 
     const sensorId = parseInt(sensor.id);
+
+    // Registra reboot hardware se rilevato (contatore resettato)
+    const fCnt = validatedData.uplink_message?.f_cnt;
+    const lastCnt = LAST_FRAME_COUNTERS.get(devEui);
+    if (fCnt !== undefined && lastCnt !== undefined && fCnt < 5 && lastCnt > 100) {
+       void recordSensorReboot(sensorId).catch(e => console.error("[DB_REBOOT_FAIL]", e));
+    }
+    LAST_FRAME_COUNTERS.set(devEui, fCnt);
     let value = pickDecodedNumeric(decoded);
     let battery = pickBatteryDecoded(decoded);
 
@@ -621,10 +627,10 @@ async function ingestTtnWebhook(body) {
     try {
       await pgStore.insertMeasurement(measurementData, client);
     } catch (err) {
-      return databaseFailureResponse(err, "insertMeasurement", { sensorId, sensor });
+      return databaseFailureResponse(err, "insertMeasurement");
     }
 
-    // Avvio analisi asincrona (motore ripristinato)
+    // Avvio analisi asincrona (Motore parallelo ottimizzato)
     setTimeout(() => {
       analysisQueue.push(async () => {
         try {
@@ -632,6 +638,18 @@ async function ingestTtnWebhook(body) {
           if (sensorInfo.type === 'air' || sensorInfo.type === 'Ambiente') {
             await analyzeAirPacket(sensor, devEui, sensorInfo.data, tsUtc);
           }
+          // Telemetria Manutenzione
+          await analyzeMaintenanceTelemetry({
+            sensorId: sensor.id,
+            devEui,
+            sensorName: sensor.name,
+            location: sensor.location,
+            batteryLevel: battery,
+            rssi: radio.rssi,
+            timestamp: tsUtc
+          });
+        } catch (err) {
+          console.error(`[analysisQueue] Errore analisi ${devEui}:`, err.message);
         } finally {
           activeAnalyses--;
           processNextAnalysis();
@@ -660,7 +678,7 @@ async function ingestTtnWebhook(body) {
  * Gestore coda analisi (Motore)
  */
 function processNextAnalysis() {
-  if (analysisQueue.length > 0 && activeAnalyses < MAX_CONCURRENT_ANALYSES) {
+  while (analysisQueue.length > 0 && activeAnalyses < MAX_CONCURRENT_ANALYSES) {
     const nextTask = analysisQueue.shift();
     activeAnalyses++;
     nextTask().catch(err => console.error("[processNextAnalysis] Crash task:", err));

@@ -3,7 +3,7 @@
  * Analisi predittiva per prevenzione danni e ottimizzazione consumi
  */
 
-const { incrementTotalLiters, getWaterThresholds, findSensorByDevEui } = require("./postgresStore");
+const { incrementTotalLiters, getWaterThresholds, findSensorByDevEui, resetTotalLiters } = require("./postgresStore");
 const { notifyCriticalAlarm, notifyWarning } = require("./telegramNotifier");
 const { findZone, findNode } = require("./zonesData");
 

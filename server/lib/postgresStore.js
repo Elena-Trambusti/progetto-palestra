@@ -305,59 +305,8 @@ async function listSensorsForLocation(location) {
   });
 }
 
-async function insertSensor(row) {
-  const dev = normalizeDevEui(row.devEui);
-  if (!dev) {
-    const err = new Error("invalid_dev_eui");
-    err.code = "invalid_dev_eui";
-    throw err;
-  }
-  const name = String(row.name || "").trim();
-  if (!name) {
-    const err = new Error("empty_sensor_name");
-    err.code = "empty_sensor_name";
-    throw err;
-  }
-  const location = String(row.location || "").trim();
-  if (!location) {
-    const err = new Error("empty_sensor_location");
-    err.code = "empty_sensor_location";
-    throw err;
-  }
-  const type = String(row.type || "").trim();
-  if (!type) {
-    const err = new Error("empty_sensor_type");
-    err.code = "empty_sensor_type";
-    throw err;
-  }
-  const minT = parseOptionalThreshold(row.minThreshold);
-  const maxT = parseOptionalThreshold(row.maxThreshold);
-
-  return withClient(async (c) => {
-    try {
-      const r = await c.query(
-        `INSERT INTO sensors (dev_eui, name, location, type, min_threshold, max_threshold)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         RETURNING id, dev_eui AS "devEui", name, location, type,
-                   min_threshold AS "minThreshold", max_threshold AS "maxThreshold"`,
-        [dev, name, location, type, minT, maxT],
-      );
-      return r.rows[0];
-    } catch (e) {
-      if (e && e.code === "23505") throwDevEuiDuplicate();
-      throw e;
-    }
-  });
-}
-
-function parseOptionalThreshold(val) {
-  if (val === null || val === undefined || val === "") return null;
-  const n = Number(val);
-  return Number.isFinite(n) ? n : null;
-}
-
 async function insertSensor(sensor, client = null) {
-  const devEui = normalizeDevEui(sensor.dev_eui);
+  const devEui = normalizeDevEui(sensor.dev_eui || sensor.devEui);
   if (!devEui) throw new Error("dev_eui non valido");
 
   const exec = async (c) => {
@@ -377,6 +326,7 @@ async function insertSensor(sensor, client = null) {
           parseOptionalThreshold(sensor.maxThreshold),
         ],
       );
+      queryCache.del("sensors:all");
       return r.rows[0];
     } catch (e) {
       console.error("[DB_INSERT_SENSOR_ERROR]", e.message);
@@ -573,18 +523,17 @@ async function insertMeasurement(data, client = null) {
         ],
       );
     } catch (err) {
-      console.error("--- [CRITICAL_SQL_ERROR] ---");
-      console.error("Message:", err.message);
-      console.error("Query Context:", { sensorId, value, co2, tsIsoUtc });
       throw err;
     }
   };
 
   await (client ? exec(client) : withClient(exec));
 
-  // Invalida cache misure
+  // Invalida cache misure e sensori (Senior Strategy: pulizia totale delle chiavi volatili)
   if (!client) {
-    queryCache.del(`measurements:latest:${sensorId}`);
+    const keys = queryCache.keys();
+    const toDel = keys.filter(k => k.startsWith('measurements:latest') || k === 'sensors:all');
+    toDel.forEach(k => queryCache.del(k));
   }
 }
 
