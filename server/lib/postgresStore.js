@@ -550,22 +550,29 @@ async function insertMeasurement({
   // Supporta sia battery (legacy) che batteryLevel (nuovo schema)
   const battValue = batteryLevel != null ? batteryLevel : battery;
   const result = await withClient(async (c) => {
-    await c.query(
-      `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery_level, timestamp)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz)`,
-      [
-        sensorId,
-        Number(value),
-        co2 == null ? null : Number(co2),
-        voc == null ? null : Number(voc),
-        lux == null ? null : Number(lux),
-        sensorType || null,
-        rssi == null ? null : Number(rssi),
-        snr == null ? null : Number(snr),
-        battValue == null ? null : Number(battValue),
-        tsIsoUtc,
-      ],
-    );
+    try {
+      await c.query(
+        `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery_level, timestamp)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz)`,
+        [
+          sensorId,
+          Number(value || 0),
+          co2 == null ? null : Math.floor(Number(co2)),
+          voc == null ? null : Math.floor(Number(voc)),
+          lux == null ? null : Math.floor(Number(lux)),
+          sensorType || null,
+          rssi == null ? null : Number(rssi),
+          snr == null ? null : Number(snr),
+          battValue == null ? null : Number(battValue),
+          tsIsoUtc,
+        ],
+      );
+    } catch (err) {
+      console.error("--- [CRITICAL_SQL_ERROR] ---");
+      console.error("Message:", err.message);
+      console.error("Query Context:", { sensorId, value, co2, tsIsoUtc });
+      throw err;
+    }
   });
 
   // Invalida cache misure per questo sensore
