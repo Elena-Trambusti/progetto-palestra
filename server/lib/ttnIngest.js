@@ -469,6 +469,8 @@ function validateTtnPayload(body) {
  * Ritorna { ok, status, detail }; errori DB → dbError + logMessage (nessuna eccezione verso Express).
  */
 async function ingestTtnWebhook(body) {
+  const tsStart = Date.now();
+  console.log(`[INGEST_START] Ricevuto segnale da ${body?.end_device_ids?.dev_eui || 'unknown'}`);
   try {
     // Validazione Joi strict
     const validation = validateTtnPayload(body);
