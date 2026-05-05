@@ -82,7 +82,7 @@ function useGatewayMode() {
 
 export function useDashboardSensors(zoneId, authEpoch = 0) {
   const { apiRoot, useApi } = useGatewayMode();
-  const pollMs = Number(process.env.REACT_APP_POLL_INTERVAL_MS) || 60000;
+  const pollMs = Number(process.env.REACT_APP_POLL_INTERVAL_MS) || 30000;
   const wsUrl = resolveWebSocketUrl(zoneId);
   const apiKeyConfigured = Boolean(
     String(process.env.REACT_APP_SENSOR_API_KEY || "").trim()

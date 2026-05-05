@@ -2776,7 +2776,7 @@ const ticker = setInterval(async () => {
       error: err && err.message ? err.message : String(err),
     }),
   );
-}, 60000);
+}, 30000);
 const opsAlertTicker = setInterval(evaluateOpsAlerts, OPS_ALERT_CHECK_EVERY_MS);
 
 // Backup automatico schedulato (se abilitato e PG disponibile)
