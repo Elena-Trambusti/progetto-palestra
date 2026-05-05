@@ -658,8 +658,13 @@ async function ingestTtnWebhook(body) {
   // Estrai dati specifici per tipo di sensore (usando il tipo dal DB)
   const sensorInfo = extractSensorData(devEui, decoded, sensor);
 
+  // VERIFICA INTEGRITÀ ID (Senior Architect Audit)
+  const sensorId = parseInt(sensor.id);
+  console.log(`[INGEST_AUDIT] Verificando sensore ID: ${sensorId} per devEui: ${devEui}`);
+  console.log(`[INGEST_AUDIT] Oggetto sensore completo:`, JSON.stringify(sensor));
+
   const measurementData = {
-    sensorId: sensor.id,
+    sensorId: sensorId,
     value: isFinite(Number(value)) ? Number(value) : 0,
     sensorType: sensorInfo.sensorType || sensor.type,
     rssi: radio.rssi,
@@ -679,6 +684,8 @@ async function ingestTtnWebhook(body) {
   try {
     await insertMeasurement(measurementData);
   } catch (err) {
+    // In caso di errore FK, facciamo una query di emergenza per vedere se l'ID esiste davvero
+    console.error(`[CRITICAL_FK_FAIL] L'ID ${sensorId} ha causato FK violation. Il sensore esiste ancora?`);
     return databaseFailureResponse(err, "insertMeasurement");
   }
 
