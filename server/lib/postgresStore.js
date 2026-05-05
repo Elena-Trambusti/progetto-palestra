@@ -350,6 +350,34 @@ async function insertSensor(row) {
   });
 }
 
+async function insertSensor(sensor) {
+  const devEui = normalizeDevEui(sensor.dev_eui);
+  if (!devEui) throw new Error("dev_eui non valido");
+
+  return withClient(async (c) => {
+    try {
+      const r = await c.query(
+        `INSERT INTO sensors (dev_eui, name, location, type, min_threshold, max_threshold)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, dev_eui AS "devEui", name, location, type,
+                   min_threshold AS "minThreshold", max_threshold AS "maxThreshold"`,
+        [
+          devEui,
+          sensor.name || `Nodo ${devEui}`,
+          sensor.location || "Generale",
+          sensor.type || "Ambiente",
+          parseOptionalThreshold(sensor.minThreshold),
+          parseOptionalThreshold(sensor.maxThreshold),
+        ],
+      );
+      return r.rows[0];
+    } catch (e) {
+      if (e && e.code === "23505") throwDevEuiDuplicate();
+      throw e;
+    }
+  });
+}
+
 async function updateSensor(id, patch) {
   return withClient(async (c) => {
     const cur = await c.query(`SELECT * FROM sensors WHERE id = $1`, [id]);
