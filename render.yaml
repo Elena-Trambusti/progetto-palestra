@@ -26,7 +26,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: CORS_ORIGIN
-        value: "https://progetto-palestra.onrender.com"
+        value: "https://backend-palestra.onrender.com"
       - key: TELEGRAM_AUTO_MONITOR
         value: "false"
       - key: DATA_DIR
