@@ -429,6 +429,7 @@ function databaseFailureResponse(err, phase) {
     dbError: true,
     detail: {
       error: transient ? "database_unavailable" : "database_error",
+      sqlMessage: msg, // <--- La verità è qui
       hint: transient
         ? "Database momentaneamente irraggiungibile: la misura non è stata salvata. Riprova quando il servizio è di nuovo disponibile."
         : "Errore durante l'accesso al database; la misura non è stata salvata.",
