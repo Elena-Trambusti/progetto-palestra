@@ -318,6 +318,7 @@ function pickDecodedNumeric(decoded) {
     "temp",
     "temperatureC",
     "co2",
+    "co2Ppm",
     "humidity",
     "rh",
     "level",
