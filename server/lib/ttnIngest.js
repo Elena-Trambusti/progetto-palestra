@@ -25,12 +25,14 @@ const analysisQueue = [];
 
 const LAST_FRAME_COUNTERS = new Map();
 const AUTHORIZED_DEV_EUIS = ["node-water-01", "node-env-01", "gw-livorno-01"];
+
+const ttnIngestSchema = Joi.object({
   end_device_ids: Joi.object({
-    dev_eui: Joi.string().hex().length(16).required(),
+    dev_eui: Joi.string().min(8).max(32).required(),
     device_id: Joi.string().allow("").optional(),
     application_ids: Joi.object().optional(),
   }).optional(),
-  dev_eui: Joi.string().hex().length(16).optional(), // fallback
+  dev_eui: Joi.string().min(8).max(32).optional(), // fallback
   uplink_message: Joi.object({
     decoded_payload: Joi.object({
       temperatureC: Joi.number().min(0).max(60).optional(),
@@ -56,16 +58,9 @@ const AUTHORIZED_DEV_EUIS = ["node-water-01", "node-env-01", "gw-livorno-01"];
   received_at: Joi.string().isoDate().required(),
 }).required();
 
-// WHITELIST RIGOROSA DEI DISPOSITIVI AUTORIZZATI
-const AUTHORIZED_DEV_EUIS = [
-  "node-water-01", // Nodo Vano Idrico
-  "node-env-01",   // Nodo Palestra
-  "gw-livorno-01"  // Gateway
-];
-
-// CACHE DEDUPLICAZIONE (Senior Engineer Mode)
-// Chiave: devEui, Valore: ultimo f_cnt ricevuto
-const LAST_FRAME_COUNTERS = new Map();
+/**
+ * Estrae i campi principali dal payload TTN validato.
+ */
 
 /**
  * Mappatura dinamica sensori - LEGGE DA ENV oppure usa defaults
