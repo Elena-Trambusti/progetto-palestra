@@ -365,6 +365,7 @@ async function insertSensor(sensor) {
       const r = await c.query(
         `INSERT INTO sensors (dev_eui, name, location, type, min_threshold, max_threshold)
          VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (dev_eui) DO UPDATE SET dev_eui = EXCLUDED.dev_eui
          RETURNING id, dev_eui AS "devEui", name, location, type,
                    min_threshold AS "minThreshold", max_threshold AS "maxThreshold"`,
         [
@@ -378,7 +379,7 @@ async function insertSensor(sensor) {
       );
       return r.rows[0];
     } catch (e) {
-      if (e && e.code === "23505") throwDevEuiDuplicate();
+      console.error("[DB_INSERT_SENSOR_ERROR]", e.message);
       throw e;
     }
   });
