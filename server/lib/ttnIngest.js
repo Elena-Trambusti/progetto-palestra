@@ -30,9 +30,9 @@ const ttnIngestSchema = Joi.object({
     decoded_payload: Joi.object({
       temperatureC: Joi.number().min(0).max(60).optional(),
       humidityPercent: Joi.number().min(0).max(100).optional(),
-      co2Ppm: Joi.number().min(300).max(5000).optional(),
-      vocIndex: Joi.number().min(0).max(500).optional(),
-      lux: Joi.number().min(0).max(20000).optional(),
+      co2Ppm: Joi.number().integer().min(300).max(5000).optional(),
+      vocIndex: Joi.number().integer().min(0).max(500).optional(),
+      lux: Joi.number().integer().min(0).max(20000).optional(),
       levelPercent: Joi.number().min(0).max(100).optional(),
       flowLmin: Joi.number().min(0).max(200).optional(),
       battery_level: Joi.number().integer().min(0).max(100).optional(),
@@ -444,7 +444,7 @@ function databaseFailureResponse(err, phase) {
  * @returns {{valid: boolean, error?: string, details?: Array}}
  */
 function validateTtnPayload(body) {
-  const { error } = ttnIngestSchema.validate(body, {
+  const { error, value } = ttnIngestSchema.validate(body, {
     abortEarly: false,
     stripUnknown: true,
   });
@@ -458,7 +458,7 @@ function validateTtnPayload(body) {
       })),
     };
   }
-  return { valid: true };
+  return { valid: true, data: value };
 }
 
 /**
@@ -466,21 +466,23 @@ function validateTtnPayload(body) {
  * Ritorna { ok, status, detail }; errori DB → dbError + logMessage (nessuna eccezione verso Express).
  */
 async function ingestTtnWebhook(body) {
-  // Validazione Joi strict
-  const validation = validateTtnPayload(body);
-  if (!validation.valid) {
-    return {
-      ok: false,
-      status: 400,
-      detail: {
-        error: "payload_validation_failed",
-        message: "Payload non valido",
-        validationErrors: validation.details,
-      },
-    };
-  }
+  try {
+    // Validazione Joi strict
+    const validation = validateTtnPayload(body);
+    if (!validation.valid) {
+      return {
+        ok: false,
+        status: 400,
+        detail: {
+          error: "payload_validation_failed",
+          message: "Payload non valido",
+          validationErrors: validation.details,
+        },
+      };
+    }
 
-  const { devEui, decoded, buf, rssi, snr, tsRaw, payloadMeta } = extractTtnFields(body);
+    const validatedData = validation.data;
+    const { devEui, decoded, buf, rssi, snr, tsRaw, payloadMeta } = extractTtnFields(validatedData);
   if (!devEui) {
     return { ok: false, status: 400, detail: { error: "dev_eui_missing" } };
   }
@@ -596,8 +598,9 @@ async function ingestTtnWebhook(body) {
 
   // Estrai dati specifici per tipo di sensore (usando il tipo dal DB)
   const sensorInfo = extractSensorData(devEui, decoded, sensor);
-  
-  // Prepara campi specifici per insertMeasurement (schema telemetria universale)
+  // Estrai dati specifici per tipo di sensore (usando il tipo dal DB)
+  const sensorInfo = extractSensorData(devEui, decoded, sensor);
+
   const measurementData = {
     sensorId: sensor.id,
     value: Number(value),
@@ -654,17 +657,15 @@ async function ingestTtnWebhook(body) {
     console.warn("[maintenance]", err && err.message ? err.message : err);
   });
 
-  return {
-    ok: true,
-    status: 200,
-    detail: {
-      ok: true,
-      sensorId: sensor.id,
-      devEui,
-      value: Number(value),
-      timestampUtc: tsUtc.toISOString(),
-    },
-  };
+    };
+  } catch (err) {
+    console.error(`[AUDIT_FAIL] Eccezione non gestita durante ingest: ${err.message}`, err.stack);
+    return {
+      ok: false,
+      status: 500,
+      detail: { error: "internal_server_error", message: "Errore imprevisto durante l'elaborazione del segnale." }
+    };
+  }
 }
 
 /**
