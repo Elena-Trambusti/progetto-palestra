@@ -2880,7 +2880,14 @@ async function startHttpServer() {
         console.log("🔄 Caricamento topologia dinamica dal Database...");
         const topo = await pgStore.fetchTopology();
         updateTopology(topo);
-        console.log("✅ Topologia dinamica caricata con successo");
+        
+        // Sincronizza lo store in-memory con le nuove zone (Senior Architecture Fix)
+        topo.zones.forEach(z => {
+          if (!store[z.id]) {
+            store[z.id] = createInitialState(z.id);
+          }
+        });
+        console.log("✅ Topologia dinamica e store in-memory sincronizzati");
       } catch (err) {
         console.error("❌ Errore caricamento topologia:", err.message);
       }
@@ -2992,16 +2999,7 @@ async function startHttpServer() {
       });
     }
 
-    // Sincronizzazione Topologia dal Database (Senior Zero-Touch Implementation)
-    if (pgStore) {
-      try {
-        console.log("  🔄 Sincronizzazione topologia dal database...");
-        const topology = await pgStore.fetchTopology();
-        updateTopology(topology);
-      } catch (err) {
-        console.error("  ❌ Errore sincronizzazione topologia iniziale:", err.message);
-      }
-    }
+
 
     if (isTelegramConfigured() && TELEGRAM_AUTO_MONITOR) {
       console.log(

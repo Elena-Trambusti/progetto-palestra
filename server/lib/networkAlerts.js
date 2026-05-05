@@ -76,7 +76,7 @@ async function checkAllNetworkStatus(store) {
   const results = [];
 
   for (const node of NODES) {
-    const nodeState = store?.[node.id];
+    const nodeState = store?.[node.zoneId || node.id];
     const { offline, minutes } = isNodeOffline(nodeState);
     const { weak, rssi, snr } = isSignalWeak(nodeState);
 

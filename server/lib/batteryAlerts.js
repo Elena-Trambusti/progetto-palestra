@@ -26,7 +26,7 @@ const lastBatteryState = new Map(); // 'ok' | 'warning' | 'critical'
 function checkNodeBattery(node, store) {
   if (!node || !store) return { level: null, percent: null };
 
-  const nodeState = store[node.id];
+  const nodeState = store[node.zoneId || node.id];
   if (!nodeState) return { level: null, percent: null };
 
   const battery = nodeState.batteryPercent;
