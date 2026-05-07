@@ -103,6 +103,7 @@ async function ensureSchema(client) {
       rssi DOUBLE PRECISION,
       snr DOUBLE PRECISION,
       battery_level DOUBLE PRECISION,
+      f_cnt INTEGER,
       timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -487,6 +488,25 @@ function measurementTimestampToUtcIso(timestamp) {
   return d.toISOString();
 }
 
+/**
+ * Inserisce una singola misura nel database PostgreSQL.
+ * Gestisce la deduplicazione atomica tramite Frame Counter (f_cnt).
+ * 
+ * @param {Object} data - Dati della misura
+ * @param {number} data.sensorId - ID interno del sensore
+ * @param {number} data.value - Valore principale (temp, water level, ecc.)
+ * @param {number} [data.co2] - Valore CO2 opzionale
+ * @param {number} [data.voc] - Valore VOC opzionale
+ * @param {number} [data.lux] - Valore Illuminamento opzionale
+ * @param {string} [data.sensorType] - Tipologia sensore (es. 'water')
+ * @param {number} [data.rssi] - Segnale radio
+ * @param {number} [data.snr] - Rapporto segnale/rumore
+ * @param {number} [data.battery_level] - Livello batteria (0-100)
+ * @param {number} [data.f_cnt] - Frame Counter LoRaWAN
+ * @param {string|Date} data.timestamp - Timestamp dell'evento
+ * @param {Object} [client] - Client database opzionale per transazioni
+ * @returns {Promise<void>}
+ */
 async function insertMeasurement(data, client = null) {
   const {
     sensorId,
@@ -497,18 +517,19 @@ async function insertMeasurement(data, client = null) {
     sensorType,
     rssi,
     snr,
-    battery,
-    batteryLevel,
+    battery_level,
+    f_cnt,
     timestamp,
   } = data;
   const tsIsoUtc = measurementTimestampToUtcIso(timestamp);
-  const battValue = batteryLevel != null ? batteryLevel : battery;
+  const battValue = battery_level;
 
   const exec = async (c) => {
     try {
       await c.query(
-        `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery_level, timestamp)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)`,
+        `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery_level, f_cnt, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz)
+         ON CONFLICT (sensor_id, timestamp, (COALESCE(f_cnt, 0))) DO NOTHING`,
         [
           sensorId,
           Number(value || 0),
@@ -519,6 +540,7 @@ async function insertMeasurement(data, client = null) {
           rssi == null ? null : Number(rssi),
           snr == null ? null : Number(snr),
           battValue == null ? null : Number(battValue),
+          f_cnt == null ? null : Math.floor(Number(f_cnt)),
           tsIsoUtc,
         ],
       );
@@ -858,7 +880,7 @@ async function buildDashboardPayload(location) {
         floor: "",
         mapX: 50,
         mapY: 50,
-        batteryPercent: last?.battery != null ? Number(last.battery) : null,
+        battery_level: last?.battery != null ? Number(last.battery) : null,
         rssi: last?.rssi != null ? Number(last.rssi) : null,
         snr: last?.snr != null ? Number(last.snr) : null,
         uplinkAt: ts,
@@ -906,7 +928,7 @@ async function buildDashboardPayload(location) {
       nodeLabel: primary ? primary.name : "",
       gatewayId: "ttn",
       gatewayName: "The Things Network",
-      batteryPercent:
+      battery_level:
         primaryLast?.battery != null ? Number(primaryLast.battery) : null,
       rssi: primaryLast?.rssi != null ? Number(primaryLast.rssi) : null,
       snr: primaryLast?.snr != null ? Number(primaryLast.snr) : null,
@@ -939,7 +961,7 @@ async function buildDashboardPayload(location) {
       vocIndex: null,
       lightLux: null,
       flowLmin: null,
-      batteryPercent: null,
+      battery_level: null,
       rssi: null,
       snr: null,
       uplinkAt: null,

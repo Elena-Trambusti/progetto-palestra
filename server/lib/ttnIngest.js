@@ -21,15 +21,24 @@ const { analyzeAirData } = require("./airAnalytics");
 const { analyzeMaintenanceTelemetry } = require("./maintenanceAnalytics");
 const { notifyInfo } = require("./telegramNotifier");
 
-// CONFIGURAZIONE RESILIENZA
-const DEV_EUI_RATE_LIMIT_MAP = new Map();
-const MIN_INTERVAL_MS = 5000;
-const MAX_CONCURRENT_ANALYSES = 5;
-let activeAnalyses = 0;
-const analysisQueue = [];
+// COSTANTI DI SISTEMA (Anti-Magic Numbers)
+const STATUS_OK = 200;
+const STATUS_BAD_REQUEST = 400;
+const STATUS_UNAUTHORIZED = 401;
+const STATUS_RATE_LIMIT = 429;
+const STATUS_SERVER_ERROR = 500;
 
+const MIN_INTERVAL_MS = Number(process.env.INGEST_MIN_INTERVAL_MS) || 5000;
+const MAX_ANALYSIS_QUEUE_SIZE = Number(process.env.INGEST_MAX_QUEUE_SIZE) || 100;
+const MAX_CONCURRENT_ANALYSES = Number(process.env.INGEST_MAX_CONCURRENT) || 5;
+
+// STATO IN-MEMORY (Resilienza e Performance)
+const DEV_EUI_RATE_LIMIT_MAP = new Map();
 const LAST_FRAME_COUNTERS = new Map();
-const AUTHORIZED_DEV_EUIS = ["NODE-WATER-01", "NODE-ENV-01", "GW-LIVORNO-01"];
+const analysisQueue = [];
+let activeAnalyses = 0;
+
+const AUTHORIZED_DEV_EUIS = (process.env.AUTHORIZED_DEV_EUIS || "").split(",").map(id => id.trim()).filter(Boolean);
 
 const ttnIngestSchema = Joi.object({
   end_device_ids: Joi.object({
@@ -312,6 +321,89 @@ function decodeBinaryForSensorType(buf, sensorType) {
 }
 
 /**
+ * ============================================================
+ * DECODER NATIVO ARDUINO MKR WAN 1310
+ * ============================================================
+ * Decodifica i payload HEX compressi prodotti dai firmware
+ * mkr_node_co2_env.ino (7 byte, porta 1) e
+ * mkr_node_water_flow.ino (8 byte, porta 2).
+ *
+ * FORMATO NODO CO2/AMBIENTE (7 byte, LoRa port 1):
+ *   Byte 0-1 : CO2 ppm       (uint16 BE)
+ *   Byte 2-3 : Temp × 100   (int16  BE)
+ *   Byte 4-5 : RH   × 100   (uint16 BE)
+ *   Byte 6   : Batteria %   (uint8)
+ *
+ * FORMATO NODO IDRICO (8 byte, LoRa port 2):
+ *   Byte 0-1 : Flusso × 100 L/min  (uint16 BE)
+ *   Byte 2-3 : Livello × 100 %     (uint16 BE)
+ *   Byte 4-5 : Temp × 100          (int16  BE)
+ *   Byte 6   : Batteria %          (uint8)
+ *   Byte 7   : Flags (bit0=wakeOnFlow) (uint8)
+ *
+ * @param {Buffer} buf   - Buffer raw del payload (da frm_payload base64)
+ * @param {number} port  - Porta LoRaWAN (f_port) del pacchetto
+ * @returns {Object|null} decoded_payload compatibile con il resto della pipeline
+ */
+function decodeMkrPayload(buf, port) {
+  if (!buf || buf.length === 0) return null;
+
+  try {
+    // ---- Porta 1: Nodo CO2 / Ambiente (SCD41) – 7 byte ----
+    if (port === 1 && buf.length >= 7) {
+      const co2Ppm          = buf.readUInt16BE(0);
+      const temperatureC    = buf.readInt16BE(2)  / 100.0;
+      const humidityPercent = buf.readUInt16BE(4) / 100.0;
+      const battery_level   = buf.readUInt8(6);
+
+      // Sanity check valori fisicamente plausibili
+      if (co2Ppm < 300 || co2Ppm > 5000) {
+        console.warn(`[decodeMkrPayload] CO2 fuori range: ${co2Ppm} ppm – payload ignorato`);
+        return null;
+      }
+
+      console.log(`[decodeMkrPayload] Porta 1 CO2=${co2Ppm}ppm T=${temperatureC}°C RH=${humidityPercent}% Batt=${battery_level}%`);
+      return {
+        co2Ppm,
+        temperatureC,
+        humidityPercent,
+        battery_level,
+        _mkrDecoded: true,
+        _port: 1,
+      };
+    }
+
+    // ---- Porta 2: Nodo Idrico (YF-S201 + HC-SR04) – 8 byte ----
+    if (port === 2 && buf.length >= 8) {
+      const flowLmin      = buf.readUInt16BE(0) / 100.0;
+      const levelPercent  = buf.readUInt16BE(2) / 100.0;
+      const temperatureC  = buf.readInt16BE(4)  / 100.0;
+      const battery_level = buf.readUInt8(6);
+      const flags         = buf.readUInt8(7);
+      const wakeOnFlow    = (flags & 0x01) === 1;
+
+      console.log(`[decodeMkrPayload] Porta 2 Flow=${flowLmin}L/min Level=${levelPercent}% T=${temperatureC}°C Batt=${battery_level}% WakeInt=${wakeOnFlow}`);
+      return {
+        flowLmin,
+        levelPercent,
+        temperatureC,
+        battery_level,
+        wakeOnFlow,
+        _mkrDecoded: true,
+        _port: 2,
+      };
+    }
+
+    // Porta non riconosciuta o buffer troppo corto: lascia gestire al decoder generico
+    return null;
+  } catch (err) {
+    console.error(`[decodeMkrPayload] Errore decodifica porta ${port}:`, err.message);
+    return null;
+  }
+}
+
+
+/**
  * Se il device ha un decoder TTN lato applicazione, i campi compaiono in `decoded_payload`.
  */
 function pickDecodedNumeric(decoded) {
@@ -366,10 +458,21 @@ function extractTtnFields(body) {
   const devEui = normalizeDevEui(devRaw);
 
   const msg = body?.uplink_message || body?.uplink || body || {};
-  const decoded = msg.decoded_payload || msg.decoded || null;
+  let decoded = msg.decoded_payload || msg.decoded || null;
   const rawB64 = msg.frm_payload ?? msg.payload_raw ?? msg.payload ?? null;
   const payloadMeta = frmPayloadToBuffer(rawB64);
   const buf = payloadMeta.ok ? payloadMeta.buffer : null;
+
+  // ---- MKR WAN 1310: tenta decoder nativo prima del fallback generico ----
+  // Il f_port determina il tipo di nodo (1=CO2/Ambiente, 2=Idrico)
+  const fPort = msg.f_port ?? msg.port ?? null;
+  if (!decoded && buf && Number.isInteger(fPort)) {
+    const mkrDecoded = decodeMkrPayload(buf, fPort);
+    if (mkrDecoded) {
+      decoded = mkrDecoded;
+      console.log(`[ttnIngest] Payload MKR WAN 1310 decodificato (porta ${fPort}):`, decoded);
+    }
+  }
 
   const rxList = Array.isArray(msg.rx_metadata) ? msg.rx_metadata : [];
   const rx0 = rxList[0] || {};
@@ -469,8 +572,18 @@ function validateTtnPayload(body) {
 }
 
 /**
- * Pipeline completa: valida dev_eui in anagrafica, decodifica, INSERT measurements.
- * Ritorna { ok, status, detail }; errori DB → dbError + logMessage (nessuna eccezione verso Express).
+ * Pipeline di ingestione principale per i webhook di The Things Network (TTN).
+ * 
+ * Flusso:
+ * 1. Validazione schema Joi (Strict)
+ * 2. Verifica Whitelist DevEUI
+ * 3. Controllo Rate-Limit (Flood Protection)
+ * 4. Deduplicazione Frame Counter (LoRaWAN Best Practice)
+ * 5. Salvataggio asincrono su PostgreSQL
+ * 6. Inserimento in coda di analisi intelligente (OOM Prevention)
+ * 
+ * @param {Object} body - Il payload JSON inviato da TTN
+ * @returns {Promise<{ok: boolean, status: number, detail: Object}>} Esito dell'operazione
  */
 async function ingestTtnWebhook(body) {
   const tsStart = Date.now();
@@ -481,7 +594,7 @@ async function ingestTtnWebhook(body) {
     if (!validation.valid) {
       return {
         ok: false,
-        status: 400,
+        status: STATUS_BAD_REQUEST,
         detail: {
           error: "payload_validation_failed",
           message: "Payload non valido",
@@ -493,7 +606,7 @@ async function ingestTtnWebhook(body) {
     const validatedData = validation.data;
     const { devEui, decoded, buf, rssi, snr, tsRaw, payloadMeta } = extractTtnFields(validatedData);
   if (!devEui) {
-    return { ok: false, status: 400, detail: { error: "dev_eui_missing" } };
+    return { ok: false, status: STATUS_BAD_REQUEST, detail: { error: "dev_eui_missing" } };
   }
 
   // WHITELIST RIGOROSA (Senior Security Engineer Mode)
@@ -503,7 +616,7 @@ async function ingestTtnWebhook(body) {
     console.warn(`[SECURITY_ALERT] Ingest negato per ${devEui}. Whitelist autorizzata: ${AUTHORIZED_DEV_EUIS.join(", ")}`);
     return { 
       ok: false, 
-      status: 401, 
+      status: STATUS_UNAUTHORIZED, 
       detail: { 
         error: "unauthorized_device", 
         message: "Dispositivo non presente nella whitelist di sicurezza",
@@ -517,11 +630,10 @@ async function ingestTtnWebhook(body) {
   const lastSeen = DEV_EUI_RATE_LIMIT_MAP.get(devEui) || 0;
   const nowMs = Date.now();
   if (nowMs - lastSeen < MIN_INTERVAL_MS) {
-    // Log silenzioso per non intasare Render
-    console.debug(`[DEBUG] Rate limit per ${devEui} (${nowMs - lastSeen}ms)`);
+    // Rate limit silenziato
     return { 
       ok: false, 
-      status: 429, 
+      status: STATUS_RATE_LIMIT, 
       detail: { error: "rate_limit_exceeded", devEui, retryAfter: "5s" } 
     };
   }
@@ -546,10 +658,9 @@ async function ingestTtnWebhook(body) {
       } 
       // Caso B: Duplicato o Fuori Ordine
       else if (fCnt <= lastCnt) {
-        console.debug(`[DEBUG] Duplicato scartato per ${devEui}: f_cnt ${fCnt} <= ${lastCnt}`);
         return { 
           ok: false, 
-          status: 200, 
+          status: STATUS_OK, 
           detail: { error: "duplicate_frame", devEui, fCnt, lastCnt } 
         };
       }
@@ -592,7 +703,7 @@ async function ingestTtnWebhook(body) {
     }
 
     if (!sensor || !sensor.id) {
-      return { ok: false, status: 500, detail: { error: "sensor_identity_loss", devEui } };
+      return { ok: false, status: STATUS_SERVER_ERROR, detail: { error: "sensor_identity_loss", devEui } };
     }
 
     const sensorId = parseInt(sensor.id);
@@ -604,10 +715,22 @@ async function ingestTtnWebhook(body) {
        void recordSensorReboot(sensorId).catch(e => console.error("[DB_REBOOT_FAIL]", e));
     }
     LAST_FRAME_COUNTERS.set(devEui, fCnt);
-    let value = pickDecodedNumeric(decoded);
+
+    // ---- ESTRAZIONE VALORE PRIMARIO ----
+    // Per payload MKR (_mkrDecoded=true), `value` deve essere la temperatura (campo
+    // semantico del DB). pickDecodedNumeric() ritornerebbe co2Ppm per primo (trovato
+    // prima di temperatureC nell'object), causando 720 ppm salvati come 720°C.
+    let value;
+    if (decoded?._mkrDecoded && Number.isFinite(Number(decoded.temperatureC))) {
+      // Path MKR: usa direttamente temperatureC come valore primario
+      value = Number(decoded.temperatureC);
+    } else {
+      // Path legacy/generico: usa il primo campo numerico trovato
+      value = pickDecodedNumeric(decoded);
+    }
     let battery = pickBatteryDecoded(decoded);
 
-    // Gestione Binary Fallback
+    // Gestione Binary Fallback (solo se nessun decoded disponibile)
     if (value == null && buf && buf.length > 0) {
       const dec = decodeBinaryForSensorType(buf, sensor.type);
       value = dec.value;
@@ -616,8 +739,9 @@ async function ingestTtnWebhook(body) {
 
     // Sanity Check Valore Numerico
     if (value == null || !isFinite(Number(value))) {
-       return { ok: false, status: 400, detail: { error: "numeric_value_missing", devEui } };
+       return { ok: false, status: STATUS_BAD_REQUEST, detail: { error: "numeric_value_missing", devEui } };
     }
+
 
     const radio = sanitizeRadio(rssi, snr);
     const tsUtc = parseIngestTimestampUtc(tsRaw);
@@ -629,11 +753,12 @@ async function ingestTtnWebhook(body) {
       sensorType: sensorInfo.sensorType || sensor.type,
       rssi: radio.rssi,
       snr: radio.snr,
-      batteryLevel: battery,
+      battery_level: battery,
+      f_cnt: fCnt,
       timestamp: tsUtc,
-      co2: sensorInfo.type === 'air' ? (sensorInfo.data.co2Ppm || null) : null,
-      voc: sensorInfo.type === 'air' ? (sensorInfo.data.vocIndex || null) : null,
-      lux: sensorInfo.type === 'air' ? (sensorInfo.data.lux || null) : null,
+      co2: (sensorInfo.type === 'air' && Number.isFinite(Number(sensorInfo.data.co2Ppm))) ? Math.floor(Number(sensorInfo.data.co2Ppm)) : null,
+      voc: (sensorInfo.type === 'air' && Number.isFinite(Number(sensorInfo.data.vocIndex))) ? Math.floor(Number(sensorInfo.data.vocIndex)) : null,
+      lux: (sensorInfo.type === 'air' && Number.isFinite(Number(sensorInfo.data.lux))) ? Math.floor(Number(sensorInfo.data.lux)) : null,
     };
 
     try {
@@ -642,8 +767,14 @@ async function ingestTtnWebhook(body) {
       return databaseFailureResponse(err, "insertMeasurement");
     }
 
-    // Avvio analisi asincrona (Motore parallelo ottimizzato)
+    // Avvio analisi asincrona (Motore parallelo ottimizzato con protezione OOM)
     setTimeout(() => {
+      // Se la coda è piena, scarta il task più vecchio per far posto al nuovo (FIFO protection)
+      if (analysisQueue.length >= MAX_ANALYSIS_QUEUE_SIZE) {
+        const dropped = analysisQueue.shift();
+        console.warn(`[OOM_PREVENTION] AnalysisQueue piena (${MAX_ANALYSIS_QUEUE_SIZE}). Scartato task più vecchio per prevenire crash memoria.`);
+      }
+
       analysisQueue.push(async () => {
         try {
           if (sensorInfo.type === 'water') await analyzeWaterPacket(sensor, devEui, decoded, tsUtc);
@@ -656,7 +787,7 @@ async function ingestTtnWebhook(body) {
             devEui,
             sensorName: sensor.name,
             location: sensor.location,
-            batteryLevel: battery,
+            battery_level: battery,
             rssi: radio.rssi,
             timestamp: tsUtc
           });
@@ -710,12 +841,6 @@ async function analyzeWaterPacket(sensor, devEui, decoded, timestamp) {
       return; // Nessun dato acqua rilevante
     }
 
-    console.log(`[waterAnalytics] Analisi pacchetto acqua: ${devEui}`, {
-      flowLmin,
-      levelPercent,
-      timestamp: timestamp.toISOString()
-    });
-
     // Esegui analisi intelligente
     const analysis = await analyzeWaterData({
       nodeId: devEui,
@@ -738,8 +863,6 @@ async function analyzeWaterPacket(sensor, devEui, decoded, timestamp) {
  */
 async function analyzeAirPacket(sensor, devEui, airData, timestamp) {
   try {
-    console.log(`[airAnalytics] Analisi pacchetto aria da ${devEui}:`, airData);
-
     // Esegui analisi intelligente aria
     const analysis = await analyzeAirData({
       nodeId: devEui,
@@ -765,6 +888,7 @@ module.exports = {
   extractTtnFields,
   binaryDecodeCategory,
   decodeBinaryForSensorType,
+  decodeMkrPayload,          // Esportato per test unitari
   ingestTtnWebhook,
   frmPayloadToBuffer,
   parseIngestTimestampUtc,

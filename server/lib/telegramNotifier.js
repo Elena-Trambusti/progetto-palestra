@@ -208,14 +208,16 @@ async function notifyWarning({
 }
 
 /**
- * Invia notifica batteria
- * @param {Object} params
- * @param {string} params.nodeId
- * @param {number} params.batteryPercent
- * @param {string} params.level - 'warning' | 'critical'
- * @returns {Promise<{ok: boolean}>}
+ * Invia una notifica di stato batteria critica o bassa.
+ * Implementa un cooldown automatico per evitare spam.
+ * 
+ * @param {Object} params - Parametri notifica
+ * @param {string} params.nodeId - ID o DevEUI del nodo
+ * @param {number} params.battery_level - Percentuale batteria (0-100)
+ * @param {string} params.level - Livello allerta ('warning' | 'critical')
+ * @returns {Promise<{ok: boolean, skipped?: boolean, cooldown?: boolean}>}
  */
-async function notifyBatteryAlert({ nodeId, batteryPercent, level }) {
+async function notifyBatteryAlert({ nodeId, battery_level, level }) {
   if (!isTelegramConfigured()) return { ok: false, skipped: true };
 
   const node = findNode(nodeId);
@@ -243,7 +245,7 @@ async function notifyBatteryAlert({ nodeId, batteryPercent, level }) {
   const text = [
     `${emoji} <b>${title}</b>`,
     "",
-    `🔋 Livello: ${batteryPercent}%`,
+    `🔋 Livello: ${battery_level}%`,
     `📡 Nodo: ${nodeName} (${nodeId})`,
     "",
     `📍 ${zoneName}\n🗺️ Piano ${floor}`,
@@ -255,7 +257,7 @@ async function notifyBatteryAlert({ nodeId, batteryPercent, level }) {
 
   const result = await sendTelegramMessage(text);
   if (result.ok) {
-    console.log(`[telegramNotifier] Batteria ${level} inviato: ${nodeId} = ${batteryPercent}%`);
+    console.log(`[telegramNotifier] Batteria ${level} inviato: ${nodeId} = ${battery_level}%`);
   }
   return result;
 }

@@ -6,8 +6,10 @@
 const { notifyCriticalAlarm, notifyWarning, notifyInfo } = require("./telegramNotifier");
 
 // Configurazione soglie (override da env se necessario)
-const CO2_CRITICAL_THRESHOLD = Number(process.env.AIR_CO2_THRESHOLD) || 1200; // ppm
-const CO2_WARNING_THRESHOLD = 800; // ppm
+// SOGLIA ALLINEATA a envAlarms.js (AIR_CO2_HIGH_PPM default=1000)
+// e alla variabile d'ambiente AIR_CO2_THRESHOLD nel server/.env
+const CO2_CRITICAL_THRESHOLD = Number(process.env.AIR_CO2_THRESHOLD) || 1000; // ppm
+const CO2_WARNING_THRESHOLD  = Math.round((Number(process.env.AIR_CO2_THRESHOLD) || 1000) * 0.80); // 80% → 800 ppm
 const LUX_MIN_THRESHOLD = 50; // lux
 const BUSINESS_HOURS_START = 8; // 08:00
 const BUSINESS_HOURS_END = 22; // 22:00

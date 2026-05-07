@@ -157,8 +157,10 @@ const OPS_ALERT_INGEST_REJECTS_DELTA =
 const OPS_ALERT_MIN_REQUESTS = Number(process.env.OPS_ALERT_MIN_REQUESTS) || 30;
 
 // Backup automatico configurazione
+// NOTA: default false per sicurezza locale (evita errori pg_dump senza pg installato).
+// In produzione Render impostare BACKUP_AUTO_ENABLED=true nella dashboard env.
 const BACKUP_AUTO_ENABLED =
-  String(process.env.BACKUP_AUTO_ENABLED || "true").toLowerCase() === "true";
+  String(process.env.BACKUP_AUTO_ENABLED || "false").toLowerCase() === "true";
 const BACKUP_INTERVAL_MS =
   Number(process.env.BACKUP_INTERVAL_MS) || 24 * 60 * 60 * 1000; // Default: ogni 24 ore
 
@@ -246,7 +248,7 @@ function createInitialState(zoneId) {
     vocIndex: Math.min(280, Math.max(45, 90 + Math.floor(seed * 160))),
     lightLux: Math.min(900, Math.max(140, 220 + Math.floor(seed * 520))),
     flowLmin: Math.max(0, 4 + seed * 11),
-    batteryPercent: Math.max(54, 93 - Math.floor(seed * 20)),
+    battery_level: Math.max(54, 93 - Math.floor(seed * 20)),
     rssi: -121 + Math.floor(seed * 18),
     snr: Number((2.1 + seed * 8.2).toFixed(1)),
     nodeId: node?.id || zone.primaryNodeId || zone.id,
@@ -347,12 +349,12 @@ function networkAlarmsForState(st) {
       value: null,
     });
   }
-  if (Number.isFinite(st.batteryPercent) && st.batteryPercent <= 25) {
+  if (Number.isFinite(st.battery_level) && st.battery_level <= 25) {
     alarms.push({
       code: "battery_low",
       severity: "warning",
-      message: `Batteria nodo bassa (${Math.round(st.batteryPercent)} %)`,
-      value: Math.round(st.batteryPercent),
+      message: `Batteria nodo bassa (${Math.round(st.battery_level)} %)`,
+      value: Math.round(st.battery_level),
     });
   }
   if (Number.isFinite(st.rssi) && st.rssi <= -118) {
@@ -390,7 +392,7 @@ function networkStatusSummary() {
       floor: node.floor,
       mapX: node.mapX,
       mapY: node.mapY,
-      batteryPercent: state?.batteryPercent ?? null,
+      battery_level: state?.battery_level ?? null,
       rssi: state?.rssi ?? null,
       snr: state?.snr ?? null,
       uplinkAt: state?.uplinkAt || null,
@@ -495,8 +497,8 @@ function normalizeReadingPayload(body) {
     vocIndex: vocIndex == null ? null : clampFinite(vocIndex, 0, 2000, null),
     lightLux: lightLux == null ? null : clampFinite(lightLux, 0, 20000, null),
     flowLmin: flowLmin == null ? null : clampFinite(flowLmin, 0, 1000, null),
-    batteryPercent:
-      batteryPercent == null ? null : clampFinite(batteryPercent, 0, 100, null),
+    battery_level:
+      battery_level_in == null ? null : clampFinite(battery_level_in, 0, 100, null),
     rssi: rssi == null ? null : clampFinite(rssi, -160, -1, null),
     snr: snr == null ? null : clampFinite(snr, -30, 30, null),
   };
@@ -605,7 +607,7 @@ async function tickZone(zoneId) {
   st.vocIndex = nextVoc;
   st.lightLux = nextLight;
   st.flowLmin = finalFlow;
-  st.batteryPercent = nextBattery;
+  st.battery_level = nextBattery;
   st.rssi = nextRssi;
   st.snr = Number(nextSnr.toFixed(1));
   st.nodeId = node?.id || st.nodeId;
@@ -676,7 +678,7 @@ async function tickZone(zoneId) {
         sensorType: st.zoneKind,
         rssi: st.rssi,
         snr: st.snr,
-        batteryLevel: st.batteryPercent,
+        battery_level: st.battery_level,
         timestamp: st.uplinkAt,
       });
     } catch (err) {
@@ -706,7 +708,7 @@ function applyManualReading(zoneId, payload) {
     vocIndex: vocIn,
     lightLux: lightIn,
     flowLmin: flowIn,
-    batteryPercent: batteryIn,
+    battery_level: batteryIn,
     rssi: rssiIn,
     snr: snrIn,
     source,
@@ -754,7 +756,7 @@ function applyManualReading(zoneId, payload) {
   const nextBattery =
     batteryIn != null && Number.isFinite(Number(batteryIn))
       ? Math.min(100, Math.max(0, Number(batteryIn)))
-      : st.batteryPercent;
+      : st.battery_level;
   const nextRssi =
     rssiIn != null && Number.isFinite(Number(rssiIn))
       ? Math.min(-1, Math.max(-160, Number(rssiIn)))
@@ -786,7 +788,7 @@ function applyManualReading(zoneId, payload) {
   st.vocIndex = nextVoc;
   st.lightLux = nextLight;
   st.flowLmin = nextFlow;
-  st.batteryPercent = nextBattery;
+  st.battery_level = nextBattery;
   st.rssi = nextRssi;
   st.snr = nextSnr != null ? Number(nextSnr.toFixed(1)) : st.snr;
   st.nodeId = nodeId || st.nodeId;
@@ -899,7 +901,7 @@ function buildLegacySnapshotPayload(zoneId) {
       vocIndex: s.vocIndex,
       lightLux: s.lightLux,
       flowLmin: s.flowLmin,
-      batteryPercent: s.batteryPercent,
+      battery_level: s.battery_level,
       rssi: s.rssi,
       snr: s.snr,
       uplinkAt: s.uplinkAt,
@@ -945,7 +947,7 @@ function buildLegacySnapshotPayload(zoneId) {
       nodeLabel: st.nodeLabel,
       gatewayId: st.gatewayId,
       gatewayName: gateway?.name || st.gatewayId,
-      batteryPercent: st.batteryPercent,
+      battery_level: st.battery_level,
       rssi: st.rssi,
       snr: st.snr,
       uplinkAt: st.uplinkAt,
@@ -1028,7 +1030,7 @@ async function buildSnapshotPayload(zoneId) {
           nodeLabel: "",
           gatewayId: "",
           gatewayName: "",
-          batteryPercent: null,
+          battery_level: null,
           rssi: null,
           snr: null,
           uplinkAt: null,
@@ -1330,25 +1332,43 @@ function protectDataApis(req, res, next) {
  * Ingest webhook: nessun accesso a PostgreSQL o logica applicativa finché non passa.
  * Con INGEST_SECRET impostato serve l'header `x-ingest-secret` esattamente uguale al valore env;
  * senza INGEST_SECRET ma con API_KEY, equivalente via `x-api-key`.
+ * USA crypto.timingSafeEqual per prevenire timing attack sul segreto.
  */
 function ingestAuth(req, res, next) {
-  const providedSecret = req.get("x-ingest-secret");
-  
+  const providedSecret = req.get("x-ingest-secret") || "";
+
   if (INGEST_SECRET) {
-    if (providedSecret === INGEST_SECRET) return next();
-    
+    // timingSafeEqual richiede buffer della stessa lunghezza: padding con hash
+    // per evitare di rivelare la lunghezza del segreto.
+    const expected = Buffer.from(INGEST_SECRET);
+    const provided = Buffer.from(providedSecret);
+    const lenOk = expected.length === provided.length;
+    // Confronto sempre eseguito (nessun early-exit) per resistere al timing attack
+    const paddedProvided = lenOk
+      ? provided
+      : Buffer.concat([provided, Buffer.alloc(Math.abs(expected.length - provided.length))]);
+    const safeEq = lenOk && crypto.timingSafeEqual(expected, paddedProvided);
+
+    if (safeEq) return next();
+
     metrics.ingestRejected += 1;
-    console.warn(`[AUDIT_FAIL] Ingest 401: ricevuto len(${providedSecret?.length || 0}), atteso len(${INGEST_SECRET.length}). Check spazi o encoding.`);
-    
+    console.warn(`[AUDIT_FAIL] Ingest 401: ricevuto len(${providedSecret.length}), atteso len(${INGEST_SECRET.length}).`);
     logEvent("warn", "SECURITY_ALERT: Ingest secret errato", {
-      ip: req.ip || req.connection.remoteAddress,
-      providedLen: providedSecret?.length || 0,
+      ip: req.ip || req.connection?.remoteAddress,
+      providedLen: providedSecret.length,
       expectedLen: INGEST_SECRET.length
     });
     return res.status(401).json({ error: "ingest_unauthorized" });
   }
   if (API_KEY) {
-    if (req.get("x-api-key") === API_KEY) return next();
+    const providedApiKey = req.get("x-api-key") || "";
+    const expected = Buffer.from(API_KEY);
+    const provided = Buffer.from(providedApiKey);
+    const lenOk = expected.length === provided.length;
+    const paddedProvided = lenOk
+      ? provided
+      : Buffer.concat([provided, Buffer.alloc(Math.abs(expected.length - provided.length))]);
+    if (lenOk && crypto.timingSafeEqual(expected, paddedProvided)) return next();
     metrics.ingestRejected += 1;
     return res.status(401).json({
       error: "ingest_unauthorized",
@@ -1357,6 +1377,7 @@ function ingestAuth(req, res, next) {
   }
   return next();
 }
+
 
 app.use(protectDataApis);
 
@@ -2806,24 +2827,7 @@ const ticker = setInterval(async () => {
 const opsAlertTicker = setInterval(evaluateOpsAlerts, OPS_ALERT_CHECK_EVERY_MS);
 
 // Backup automatico schedulato (se abilitato e PG disponibile)
-let backupTicker = null;
-if (BACKUP_AUTO_ENABLED && pgStore) {
-  backupTicker = setInterval(async () => {
-    try {
-      console.log("[backup-auto] Avvio backup schedulato...");
-      const backup = await backupManager.createBackup();
-      const cleanup = await backupManager.cleanupOldBackups();
-      console.log(
-        `[backup-auto] Completato: ${backup.filename}, cleanup: ${cleanup.deleted} rimossi`,
-      );
-    } catch (err) {
-      logEvent("error", "backup_auto_failed", {
-        error: err && err.message ? err.message : String(err),
-      });
-      console.error("[backup-auto] Fallito:", err.message);
-    }
-  }, BACKUP_INTERVAL_MS);
-}
+// BACKUP_TICKER_REMOVED
 
 // Manutenzione automatica partizioni (se abilitata e PG disponibile)
 let partitionTicker = null;
@@ -2985,19 +2989,7 @@ async function startHttpServer() {
       );
     }
 
-    // Avvia backup automatico se abilitato
-    if (BACKUP_AUTO_ENABLED && DATABASE_URL) {
-      const backupScheduler = backupManager.startScheduledBackup(BACKUP_INTERVAL_MS);
-      console.log(`  💾 Backup automatico: ogni ${BACKUP_INTERVAL_MS / 3600000}h`);
-      
-      // Cleanup in shutdown
-      process.on("SIGTERM", () => {
-        backupScheduler.stop();
-      });
-      process.on("SIGINT", () => {
-        backupScheduler.stop();
-      });
-    }
+    // BACKUP_AUTO_DISABLED_BY_SENIOR_FIX
 
 
 

@@ -29,16 +29,16 @@ function checkNodeBattery(node, store) {
   const nodeState = store[node.zoneId || node.id];
   if (!nodeState) return { level: null, percent: null };
 
-  const battery = nodeState.batteryPercent;
-  if (!Number.isFinite(battery)) return { level: null, percent: null };
+  const battery_level = nodeState.battery_level;
+  if (!Number.isFinite(battery_level)) return { level: null, percent: null };
 
-  if (battery <= CRITICAL_THRESHOLD) {
-    return { level: "critical", percent: battery };
+  if (battery_level <= CRITICAL_THRESHOLD) {
+    return { level: "critical", percent: battery_level };
   }
-  if (battery <= WARNING_THRESHOLD) {
-    return { level: "warning", percent: battery };
+  if (battery_level <= WARNING_THRESHOLD) {
+    return { level: "warning", percent: battery_level };
   }
-  return { level: "ok", percent: battery };
+  return { level: "ok", percent: battery_level };
 }
 
 /**
@@ -60,7 +60,7 @@ async function checkAllBatteries(store) {
       if (level === "warning" || level === "critical") {
         const result = await notifyBatteryAlert({
           nodeId: node.id,
-          batteryPercent: percent,
+          battery_level: percent,
           level,
         });
         if (result.ok || result.cooldown) {
@@ -150,17 +150,17 @@ function startBatteryMonitoring(getStore) {
  * @param {number} batteryPercent
  * @returns {Promise<{notified: boolean, level: string|null}>}
  */
-async function checkSingleNodeBattery(nodeId, batteryPercent) {
+async function checkSingleNodeBattery(nodeId, battery_level) {
   let level = "ok";
-  if (batteryPercent <= CRITICAL_THRESHOLD) level = "critical";
-  else if (batteryPercent <= WARNING_THRESHOLD) level = "warning";
+  if (battery_level <= CRITICAL_THRESHOLD) level = "critical";
+  else if (battery_level <= WARNING_THRESHOLD) level = "warning";
 
   const previousLevel = lastBatteryState.get(nodeId) || "ok";
 
   if (level !== previousLevel && (level === "warning" || level === "critical")) {
     const result = await notifyBatteryAlert({
       nodeId,
-      batteryPercent,
+      battery_level,
       level,
     });
     if (result.ok) {

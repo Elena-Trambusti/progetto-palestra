@@ -24,7 +24,6 @@ const readingSchema = Joi.object({
   gatewayId: Joi.string().min(3).max(50).pattern(/^[a-zA-Z0-9\-_]+$/).required(),
   timestamp: Joi.string().isoDate().optional(),
   source: Joi.string().valid('lora-gateway', 'ttn-webhook', 'simulator').optional(),
-  batteryPercent: Joi.number().min(0).max(100).optional(),
   battery_level: Joi.number().min(0).max(100).optional(),
   rssi: Joi.number().min(-160).max(-30).optional(),
   snr: Joi.number().min(-30).max(30).optional(),

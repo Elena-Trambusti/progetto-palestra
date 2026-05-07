@@ -26,7 +26,7 @@ async function analyzeMaintenanceTelemetry({
   devEui,
   sensorName,
   location,
-  batteryLevel,
+  battery_level,
   rssi,
   timestamp
 }) {
@@ -34,8 +34,8 @@ async function analyzeMaintenanceTelemetry({
   
   try {
     // Verifica batteria
-    if (batteryLevel != null) {
-      const batteryAlert = checkBatteryLevel(batteryLevel, devEui, sensorName, location);
+    if (battery_level != null) {
+      const batteryAlert = checkBatteryLevel(battery_level, devEui, sensorName, location);
       if (batteryAlert) {
         const shouldNotify = await shouldSendAlert(sensorId, 'battery');
         if (shouldNotify) {
@@ -44,9 +44,9 @@ async function analyzeMaintenanceTelemetry({
             sensorId: devEui,
             sensorName,
             location,
-            value: batteryLevel,
-            unit: isPercentBattery(batteryLevel) ? '%' : 'V',
-            threshold: isPercentBattery(batteryLevel) ? BATTERY_CRITICAL_PCT : BATTERY_CRITICAL_VOLTS,
+            value: battery_level,
+            unit: isPercentBattery(battery_level) ? '%' : 'V',
+            threshold: isPercentBattery(battery_level) ? BATTERY_CRITICAL_PCT : BATTERY_CRITICAL_VOLTS,
             timestamp
           });
           await markAlertSent(sensorId, 'battery');
