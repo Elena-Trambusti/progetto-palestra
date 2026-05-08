@@ -45,7 +45,7 @@ const char APP_KEY[]  = "00000000000000000000000000000000";
 // ---- PARAMETRI OPERATIVI ---------------------------------------------------
 const uint32_t SLEEP_MS         = 15UL * 60UL * 1000UL; // 15 min timer
 const uint8_t  LORA_PORT        = 2;
-const uint8_t  MAX_JOIN_RETRIES  = 10;
+const uint32_t LORA_REJOIN_INTERVAL_MS = 10UL * 60UL * 1000UL; // 10 minuti
 
 // ---- PIN -------------------------------------------------------------------
 const int PIN_FLOW_SENSOR  = 4;   // D4 – Interrupt esterno (YF-S201)
@@ -69,6 +69,41 @@ unsigned long     lastWakeMs     = 0;
 // DEBOUNCE_MS non necessario: YF-S201 usa segnale Hall già filtrato hardware
 
 LoRaModem modem;
+bool modemReady = false;
+bool loraJoined = false;
+unsigned long lastJoinAttemptMs = 0;
+
+// ============================================================================
+// WATCHDOG HARDWARE (SAMD21) – reset fisico se il firmware si blocca > 16 s
+// ============================================================================
+void wdtSync() {
+  while (WDT->STATUS.bit.SYNCBUSY);
+}
+
+void wdtEnable16s() {
+  GCLK->GENDIV.reg = GCLK_GENDIV_ID(2) | GCLK_GENDIV_DIV(4);
+  while (GCLK->STATUS.bit.SYNCBUSY);
+  GCLK->GENCTRL.reg = GCLK_GENCTRL_ID(2) | GCLK_GENCTRL_SRC_OSCULP32K | GCLK_GENCTRL_GENEN;
+  while (GCLK->STATUS.bit.SYNCBUSY);
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID_WDT | GCLK_CLKCTRL_GEN_GCLK2 | GCLK_CLKCTRL_CLKEN;
+  while (GCLK->STATUS.bit.SYNCBUSY);
+
+  WDT->CTRL.reg = 0;
+  wdtSync();
+  WDT->CONFIG.reg = WDT_CONFIG_PER_16K; // ~16 secondi
+  WDT->CTRL.reg = WDT_CTRL_ENABLE;
+  wdtSync();
+}
+
+void wdtDisable() {
+  WDT->CTRL.reg = 0;
+  wdtSync();
+}
+
+void wdtKick() {
+  WDT->CLEAR.reg = WDT_CLEAR_CLEAR_KEY;
+  wdtSync();
+}
 
 // ============================================================================
 // ISR – impulso flussostato (SAMD21 / MKR WAN 1310)
@@ -120,6 +155,8 @@ uint8_t readBatteryPercent() {
 // LoRa
 // ============================================================================
 bool sendPayload(float flowLmin, float levelPct, float tempC, uint8_t batt, bool byInt) {
+  if (!loraJoined) return false;
+
   uint16_t flowRaw  = (uint16_t)constrain((int)(flowLmin * 100.0f), 0, 65535);
   uint16_t levRaw   = (uint16_t)constrain((int)(levelPct * 100.0f), 0, 10000);
   int16_t  tempRaw  = (int16_t)(tempC * 100.0f);
@@ -139,6 +176,41 @@ bool sendPayload(float flowLmin, float levelPct, float tempC, uint8_t batt, bool
   return modem.endPacket(0) > 0;
 }
 
+bool initModemIfNeeded() {
+  if (modemReady) return true;
+  wdtKick();
+  modemReady = modem.begin(EU868);
+  if (!modemReady) {
+    Serial.println(F("[LoRa] modem.begin fallito"));
+    return false;
+  }
+  modem.setADR(true);
+  modem.setPort(LORA_PORT);
+  Serial.print(F("[LoRa] DevEUI: ")); Serial.println(modem.deviceEUI());
+  return true;
+}
+
+bool tryJoinNow() {
+  if (!modemReady) return false;
+  lastJoinAttemptMs = millis();
+  Serial.println(F("[LoRa] Tentativo join OTAA"));
+  wdtKick();
+  loraJoined = modem.joinOTAA(APP_EUI, APP_KEY);
+  Serial.println(loraJoined ? F("[LoRa] Join OK") : F("[LoRa] Join fallito"));
+  return loraJoined;
+}
+
+void maintainLoRaLink() {
+  if (loraJoined) return;
+
+  unsigned long nowMs = millis();
+  bool due = (lastJoinAttemptMs == 0) || (nowMs - lastJoinAttemptMs >= LORA_REJOIN_INTERVAL_MS);
+  if (!due) return;
+
+  if (!initModemIfNeeded()) return;
+  tryJoinNow();
+}
+
 // ============================================================================
 // SETUP
 // ============================================================================
@@ -152,41 +224,11 @@ void setup() {
   unsigned long t0 = millis();
   while (!Serial && millis() - t0 < 5000);
   Serial.println(F("[MKR] Nodo Idrico – MKRWAN – avvio"));
+  wdtEnable16s();
+  wdtKick();
 
-  // ---- Modem LoRa -----------------------------------------------------------
-  if (!modem.begin(EU868)) {
-    Serial.println(F("[LoRa] Errore modem – reset in 1 s"));
-    // NON usare while(true): il nodo si bloccherebbe permanentemente.
-    // 5 lampeggi rapidi come segnalazione visiva, poi reset hardware.
-    for (int i = 0; i < 10; i++) {
-      digitalWrite(PIN_LED, !digitalRead(PIN_LED));
-      delay(100);
-    }
-    NVIC_SystemReset(); // ritenta boot completo
-  }
-  Serial.print(F("[LoRa] DevEUI: ")); Serial.println(modem.deviceEUI());
-
-  modem.setADR(true);
-
-  bool joined = false;
-  for (int attempt = 1; attempt <= MAX_JOIN_RETRIES && !joined; attempt++) {
-    Serial.print(F("[LoRa] Join OTAA tentativo ")); Serial.println(attempt);
-    joined = modem.joinOTAA(APP_EUI, APP_KEY);
-    if (!joined) {
-      // Backoff esponenziale cappato: 10s, 20s, 40s … max 300s
-      // Rispetta fair-use LoRaWAN EU868 (duty cycle 1%)
-      uint32_t backoffMs = min(300000UL, 10000UL * (1UL << (attempt - 1)));
-      Serial.print(F("[LoRa] Retry in ")); Serial.print(backoffMs / 1000);
-      Serial.println(F(" s..."));
-      LowPower.sleep(backoffMs); // deep sleep durante il backoff
-    }
-  }
-
-  if (!joined) {
-    Serial.println(F("[LoRa] Join fallito – sleep 5 min"));
-    LowPower.sleep(5UL * 60UL * 1000UL);
-    NVIC_SystemReset();
-  }
+  // Primo tentativo di connessione (non bloccante a lungo).
+  maintainLoRaLink();
 
   // ---- Collega Interrupt su flussostato (RISING = ogni impulso) ------------
   LowPower.attachInterruptWakeup(
@@ -195,14 +237,21 @@ void setup() {
     RISING
   );
 
-  Serial.println(F("[LoRa] Join OK – Interrupt flusso attivo"));
-  digitalWrite(PIN_LED, HIGH); delay(300); digitalWrite(PIN_LED, LOW);
+  if (loraJoined) {
+    Serial.println(F("[LoRa] Join OK – Interrupt flusso attivo"));
+    digitalWrite(PIN_LED, HIGH); delay(300); digitalWrite(PIN_LED, LOW);
+  } else {
+    Serial.println(F("[LoRa] Join non disponibile: retry automatico ogni 10 min"));
+  }
 }
 
 // ============================================================================
 // LOOP – sleep con doppio wakeup (interrupt FLUSSO o timer 15 min)
 // ============================================================================
 void loop() {
+  wdtKick();
+  maintainLoRaLink();
+
   // ---- Calcola portata [L/min] dall'intervallo --------------------------------
   uint32_t pulseSnapshot;
   noInterrupts();
@@ -233,16 +282,25 @@ void loop() {
   Serial.print(F(" %  WakeInt=")); Serial.println(byInt ? "SI" : "NO");
 
   bool sent = sendPayload(flowLmin, levelPct, tempC, batt, byInt);
-  Serial.println(sent ? F("[LoRa] Uplink OK") : F("[LoRa] Uplink fallito"));
+  if (!loraJoined) {
+    Serial.println(F("[LoRa] Non connesso: retry join ogni 10 minuti"));
+  } else {
+    if (!sent) loraJoined = false; // forza reconnessione periodica
+    Serial.println(sent ? F("[LoRa] Uplink OK") : F("[LoRa] Uplink fallito"));
+  }
 
   // LED conferma
   for (int i = 0; i < (sent ? 3 : 6); i++) {
     digitalWrite(PIN_LED, HIGH); delay(80);
     digitalWrite(PIN_LED, LOW);  delay(80);
+    wdtKick();
   }
 
   // ---- Deep Sleep (timer 15 min OPPURE interrupt flusso) --------------------
   Serial.println(F("[Sleep] Deep sleep...")); Serial.flush();
+  wdtDisable(); // evita reset intenzionale durante deep sleep
   LowPower.sleep(SLEEP_MS);
+  wdtEnable16s();
+  wdtKick();
   // Il codice riprende qui dopo il wakeup
 }

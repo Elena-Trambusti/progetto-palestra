@@ -45,13 +45,48 @@ const char APP_KEY[]  = "00000000000000000000000000000000"; // MSB first
 const uint32_t SLEEP_MS         = 15UL * 60UL * 1000UL; // 15 minuti
 const uint8_t  LORA_PORT        = 1;
 const uint8_t  LORA_CONFIRMED   = 0;   // 0=unconfirmed (risparmia airtime)
-const uint8_t  MAX_JOIN_RETRIES  = 10;
+const uint32_t LORA_REJOIN_INTERVAL_MS = 10UL * 60UL * 1000UL; // 10 minuti
 
 // ---- PIN -------------------------------------------------------------------
 const int PIN_LED_STATUS = LED_BUILTIN; // LED integrato MKR
 
 // ---- VARIABILI GLOBALI -----------------------------------------------------
 LoRaModem modem;
+bool modemReady = false;
+bool loraJoined = false;
+unsigned long lastJoinAttemptMs = 0;
+
+// ============================================================================
+// WATCHDOG HARDWARE (SAMD21) – reset fisico se il firmware si blocca > 16 s
+// ============================================================================
+void wdtSync() {
+  while (WDT->STATUS.bit.SYNCBUSY);
+}
+
+void wdtEnable16s() {
+  GCLK->GENDIV.reg = GCLK_GENDIV_ID(2) | GCLK_GENDIV_DIV(4);
+  while (GCLK->STATUS.bit.SYNCBUSY);
+  GCLK->GENCTRL.reg = GCLK_GENCTRL_ID(2) | GCLK_GENCTRL_SRC_OSCULP32K | GCLK_GENCTRL_GENEN;
+  while (GCLK->STATUS.bit.SYNCBUSY);
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID_WDT | GCLK_CLKCTRL_GEN_GCLK2 | GCLK_CLKCTRL_CLKEN;
+  while (GCLK->STATUS.bit.SYNCBUSY);
+
+  WDT->CTRL.reg = 0;
+  wdtSync();
+  WDT->CONFIG.reg = WDT_CONFIG_PER_16K; // ~16 secondi
+  WDT->CTRL.reg = WDT_CTRL_ENABLE;
+  wdtSync();
+}
+
+void wdtDisable() {
+  WDT->CTRL.reg = 0;
+  wdtSync();
+}
+
+void wdtKick() {
+  WDT->CLEAR.reg = WDT_CLEAR_CLEAR_KEY;
+  wdtSync();
+}
 
 // ============================================================================
 // FUNZIONI SCD41
@@ -118,6 +153,8 @@ uint8_t readBatteryPercent() {
 // FUNZIONE: Costruisce e invia il payload LoRaWAN
 // ============================================================================
 bool sendPayload(uint16_t co2, float tempC, float rhPct, uint8_t batt) {
+  if (!loraJoined) return false;
+
   // Serializza in 7 byte HEX compresso
   uint8_t payload[7];
   uint16_t co2Raw  = (uint16_t)constrain(co2, 0, 65535);
@@ -137,6 +174,41 @@ bool sendPayload(uint16_t co2, float tempC, float rhPct, uint8_t batt) {
   return err > 0;
 }
 
+bool initModemIfNeeded() {
+  if (modemReady) return true;
+  wdtKick();
+  modemReady = modem.begin(EU868);
+  if (!modemReady) {
+    Serial.println(F("[LoRa] modem.begin fallito"));
+    return false;
+  }
+  modem.setADR(true);
+  modem.setPort(LORA_PORT);
+  Serial.print(F("[LoRa] DevEUI: ")); Serial.println(modem.deviceEUI());
+  return true;
+}
+
+bool tryJoinNow() {
+  if (!modemReady) return false;
+  lastJoinAttemptMs = millis();
+  Serial.println(F("[LoRa] Tentativo join OTAA"));
+  wdtKick();
+  loraJoined = modem.joinOTAA(APP_EUI, APP_KEY);
+  Serial.println(loraJoined ? F("[LoRa] Join OK") : F("[LoRa] Join fallito"));
+  return loraJoined;
+}
+
+void maintainLoRaLink() {
+  if (loraJoined) return;
+
+  unsigned long nowMs = millis();
+  bool due = (lastJoinAttemptMs == 0) || (nowMs - lastJoinAttemptMs >= LORA_REJOIN_INTERVAL_MS);
+  if (!due) return;
+
+  if (!initModemIfNeeded()) return;
+  tryJoinNow();
+}
+
 // ============================================================================
 // SETUP
 // ============================================================================
@@ -151,84 +223,70 @@ void setup() {
 
   Serial.println(F("[MKR] Nodo CO2/Ambiente – MKRWAN – avvio"));
 
+  wdtEnable16s();
+  wdtKick();
+
   // ---- Inizializza I2C + SCD41 -----------------------------------------------
   Wire.begin();
   scd41SendCmd(0x3615); // stop_periodic_measurement (per sicurezza)
   delay(500);
 
-  // ---- Inizializza modem LoRa -------------------------------------------------
-  if (!modem.begin(EU868)) {
-    Serial.println(F("[LoRa] Errore inizializzazione modem – reset in 1 s"));
-    // NON usare while(true): blocco permanente = batteria scaricata, nodo irrecuperabile.
-    // Lampeggio veloce × 10 (segnalazione visiva) poi reset hardware completo.
-    for (int i = 0; i < 10; i++) {
-      digitalWrite(PIN_LED_STATUS, !digitalRead(PIN_LED_STATUS));
-      delay(100);
-    }
-    NVIC_SystemReset();
+  // Primo tentativo di connessione (non bloccante a lungo).
+  maintainLoRaLink();
+  if (loraJoined) {
+    digitalWrite(PIN_LED_STATUS, HIGH); delay(500); digitalWrite(PIN_LED_STATUS, LOW);
   }
-  Serial.print(F("[LoRa] DevEUI: ")); Serial.println(modem.deviceEUI());
-
-  // ---- Join OTAA (con retry) -------------------------------------------------
-  modem.setADR(true);      // Adaptive Data Rate abilitato
-  modem.setPort(LORA_PORT);
-
-  bool joined = false;
-  for (int attempt = 1; attempt <= MAX_JOIN_RETRIES && !joined; attempt++) {
-    Serial.print(F("[LoRa] Join OTAA tentativo ")); Serial.println(attempt);
-    joined = modem.joinOTAA(APP_EUI, APP_KEY);
-    if (!joined) {
-      // Backoff esponenziale cappato: 10s → 20s → 40s … max 300s
-      // Deep sleep durante l'attesa: zero consumo radio, zero duty-cycle
-      uint32_t backoffMs = min(300000UL, 10000UL * (1UL << (attempt - 1)));
-      Serial.print(F("[LoRa] Retry in ")); Serial.print(backoffMs / 1000);
-      Serial.println(F(" s..."));
-      LowPower.sleep(backoffMs);
-    }
-  }
-
-  if (!joined) {
-    Serial.println(F("[LoRa] Join fallito – deep sleep 5 min e retry"));
-    LowPower.sleep(5UL * 60UL * 1000UL);
-    NVIC_SystemReset(); // reset hardware e ricomincia da setup()
-  }
-
-  Serial.println(F("[LoRa] Join OK"));
-  digitalWrite(PIN_LED_STATUS, HIGH); delay(500); digitalWrite(PIN_LED_STATUS, LOW);
 }
 
 // ============================================================================
 // LOOP – ciclo periodico con deep sleep
 // ============================================================================
 void loop() {
+  wdtKick();
+  maintainLoRaLink();
+
   // 1. Leggi sensori
   uint16_t co2 = 0;
   float tempC = 0.0f, rhPct = 0.0f;
   bool ok = scd41Read(co2, tempC, rhPct);
+  wdtKick();
 
   if (!ok) {
-    Serial.println(F("[SCD41] Lettura fallita, skip uplink"));
+    // Sensore scollegato/non rispondente: non bloccare il nodo, invia marker.
+    co2 = 0xFFFF;
+    tempC = 0.0f;
+    rhPct = 0.0f;
+    Serial.println(F("[SCD41] Fault sensore: invio payload degradato"));
+  }
+
+  uint8_t batt = readBatteryPercent();
+  Serial.print(F("[SCD41] CO2=")); Serial.print(co2);
+  Serial.print(F(" ppm  T=")); Serial.print(tempC, 1);
+  Serial.print(F(" C  RH=")); Serial.print(rhPct, 0);
+  Serial.print(F(" %  Batt=")); Serial.print(batt); Serial.println(F(" %"));
+
+  // 2. Trasmetti
+  bool sent = sendPayload(co2, tempC, rhPct, batt);
+  if (!loraJoined) {
+    Serial.println(F("[LoRa] Non connesso: retry join ogni 10 minuti"));
   } else {
-    uint8_t batt = readBatteryPercent();
-    Serial.print(F("[SCD41] CO2=")); Serial.print(co2);
-    Serial.print(F(" ppm  T=")); Serial.print(tempC, 1);
-    Serial.print(F(" C  RH=")); Serial.print(rhPct, 0);
-    Serial.print(F(" %  Batt=")); Serial.print(batt); Serial.println(F(" %"));
-
-    // 2. Trasmetti
-    bool sent = sendPayload(co2, tempC, rhPct, batt);
+    if (!sent) loraJoined = false; // forza reconnessione periodica
     Serial.println(sent ? F("[LoRa] Uplink OK") : F("[LoRa] Uplink fallito"));
+  }
 
-    // LED lampeggio conferma
-    for (int i = 0; i < (sent ? 2 : 5); i++) {
-      digitalWrite(PIN_LED_STATUS, HIGH); delay(100);
-      digitalWrite(PIN_LED_STATUS, LOW);  delay(100);
-    }
+  // LED lampeggio conferma
+  for (int i = 0; i < (sent ? 2 : 5); i++) {
+    digitalWrite(PIN_LED_STATUS, HIGH); delay(100);
+    digitalWrite(PIN_LED_STATUS, LOW);  delay(100);
+    wdtKick();
   }
 
   // 3. Deep Sleep fino al prossimo ciclo
   Serial.print(F("[Sleep] Deep sleep ")); Serial.print(SLEEP_MS / 60000); Serial.println(F(" min"));
   Serial.flush();
+  wdtDisable(); // evita reset intenzionale durante deep sleep
   LowPower.sleep(SLEEP_MS);
+  wdtEnable16s();
+  wdtKick();
   // Il codice riprende qui dopo il wakeup da timer
 }

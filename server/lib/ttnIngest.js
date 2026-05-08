@@ -53,9 +53,10 @@ const ttnIngestSchema = Joi.object({
   dev_eui: Joi.string().min(8).max(32).optional(), // fallback
   uplink_message: Joi.object({
     decoded_payload: Joi.object({
-      temperatureC: Joi.number().min(0).max(60).optional(),
+      temperatureC: Joi.number().min(-45).max(60).optional(),
       humidityPercent: Joi.number().min(0).max(100).optional(),
-      co2Ppm: Joi.number().integer().min(300).max(5000).optional(),
+      // 65535 (0xFFFF) = marker guasto sensore dal firmware MKR.
+      co2Ppm: Joi.number().integer().min(300).max(65535).optional(),
       vocIndex: Joi.number().integer().min(0).max(500).optional(),
       lux: Joi.number().integer().min(0).max(20000).optional(),
       levelPercent: Joi.number().min(0).max(100).optional(),
@@ -355,23 +356,30 @@ function decodeMkrPayload(buf, port) {
   try {
     // ---- Porta 1: Nodo CO2 / Ambiente (SCD41) – 7 byte ----
     if (port === 1 && buf.length >= 7) {
-      const co2Ppm          = buf.readUInt16BE(0);
+      const co2Raw          = buf.readUInt16BE(0);
       const temperatureC    = buf.readInt16BE(2)  / 100.0;
       const humidityPercent = buf.readUInt16BE(4) / 100.0;
       const battery_level   = buf.readUInt8(6);
+      const isCo2SensorFault = co2Raw === 0xFFFF;
+      const co2Ppm = isCo2SensorFault ? null : co2Raw;
 
       // Sanity check valori fisicamente plausibili
-      if (co2Ppm < 300 || co2Ppm > 5000) {
+      if (!isCo2SensorFault && (co2Ppm < 300 || co2Ppm > 5000)) {
         publicErrorLog();
         return null;
       }
 
-      console.log(`[decodeMkrPayload] Porta 1 CO2=${co2Ppm}ppm T=${temperatureC}°C RH=${humidityPercent}% Batt=${battery_level}%`);
+      if (isCo2SensorFault) {
+        console.log(`[decodeMkrPayload] Porta 1 CO2=Errore Sensore (0xFFFF) T=${temperatureC}°C RH=${humidityPercent}% Batt=${battery_level}%`);
+      } else {
+        console.log(`[decodeMkrPayload] Porta 1 CO2=${co2Ppm}ppm T=${temperatureC}°C RH=${humidityPercent}% Batt=${battery_level}%`);
+      }
       return {
         co2Ppm,
         temperatureC,
         humidityPercent,
         battery_level,
+        sensorFault: isCo2SensorFault ? "Errore Sensore" : null,
         _mkrDecoded: true,
         _port: 1,
       };
@@ -750,6 +758,18 @@ async function ingestTtnWebhook(body) {
     const tsUtc = parseIngestTimestampUtc(tsRaw);
     const sensorInfo = extractSensorData(devEui, decoded, sensor);
 
+    const co2ValueRaw =
+      sensorInfo.type === "air" && Number.isFinite(Number(sensorInfo.data.co2Ppm))
+        ? Math.floor(Number(sensorInfo.data.co2Ppm))
+        : null;
+    const co2SensorFault =
+      co2ValueRaw === 0xFFFF || String(decoded?.sensorFault || "").toLowerCase() === "errore sensore";
+    const normalizedCo2 = co2SensorFault ? null : co2ValueRaw;
+    if (co2SensorFault) {
+      sensorInfo.data.co2Ppm = null;
+      sensorInfo.data.sensorFault = "Errore Sensore";
+    }
+
     const measurementData = {
       sensorId: sensorId,
       value: Number(value),
@@ -759,7 +779,7 @@ async function ingestTtnWebhook(body) {
       battery_level: battery,
       f_cnt: fCnt,
       timestamp: tsUtc,
-      co2: (sensorInfo.type === 'air' && Number.isFinite(Number(sensorInfo.data.co2Ppm))) ? Math.floor(Number(sensorInfo.data.co2Ppm)) : null,
+      co2: normalizedCo2,
       voc: (sensorInfo.type === 'air' && Number.isFinite(Number(sensorInfo.data.vocIndex))) ? Math.floor(Number(sensorInfo.data.vocIndex)) : null,
       lux: (sensorInfo.type === 'air' && Number.isFinite(Number(sensorInfo.data.lux))) ? Math.floor(Number(sensorInfo.data.lux)) : null,
     };
