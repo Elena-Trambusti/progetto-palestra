@@ -1512,8 +1512,8 @@ app.get("/api/ops/summary", limitApiRead, (_req, res) => {
 app.get("/api/zones", limitApiRead, async (_req, res) => {
   return res.json({
     dataProfile: "postgres",
-    zones: zonesData.ZONES,
-    floors: zonesData.FLOORS,
+    zones: ZONES,
+    floors: FLOORS,
   });
 });
 
