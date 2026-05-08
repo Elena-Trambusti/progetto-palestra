@@ -40,6 +40,10 @@ let activeAnalyses = 0;
 
 const AUTHORIZED_DEV_EUIS = (process.env.AUTHORIZED_DEV_EUIS || "").split(",").map(id => id.trim()).filter(Boolean);
 
+function publicErrorLog() {
+  console.error("Error");
+}
+
 const ttnIngestSchema = Joi.object({
   end_device_ids: Joi.object({
     dev_eui: Joi.string().min(8).max(32).required(),
@@ -125,8 +129,8 @@ function loadSensorMappings() {
       const parsed = JSON.parse(envMappings);
       console.log('[ttnIngest] Mappature sensori caricate da SENSOR_MAPPINGS_JSON:', Object.keys(parsed).length, 'sensori');
       return { ...DEFAULT_SENSOR_MAPPINGS, ...parsed };
-    } catch (err) {
-      console.error('[ttnIngest] Errore parsing SENSOR_MAPPINGS_JSON:', err.message);
+    } catch {
+      publicErrorLog();
     }
   }
   
@@ -358,7 +362,7 @@ function decodeMkrPayload(buf, port) {
 
       // Sanity check valori fisicamente plausibili
       if (co2Ppm < 300 || co2Ppm > 5000) {
-        console.warn(`[decodeMkrPayload] CO2 fuori range: ${co2Ppm} ppm – payload ignorato`);
+        publicErrorLog();
         return null;
       }
 
@@ -396,8 +400,8 @@ function decodeMkrPayload(buf, port) {
 
     // Porta non riconosciuta o buffer troppo corto: lascia gestire al decoder generico
     return null;
-  } catch (err) {
-    console.error(`[decodeMkrPayload] Errore decodifica porta ${port}:`, err.message);
+  } catch {
+    publicErrorLog();
     return null;
   }
 }
@@ -535,7 +539,6 @@ function databaseFailureResponse(err, phase) {
     dbError: true,
     detail: {
       error: transient ? "database_unavailable" : "database_error",
-      sqlMessage: msg,
       hint: transient
         ? "Database momentaneamente irraggiungibile: la misura non è stata salvata."
         : "Errore durante l'accesso al database.",
@@ -613,7 +616,7 @@ async function ingestTtnWebhook(body) {
   const isAuthorized = AUTHORIZED_DEV_EUIS.some(id => id.toUpperCase() === devEui.toUpperCase());
   
   if (!isAuthorized) {
-    console.warn(`[SECURITY_ALERT] Ingest negato per ${devEui}. Whitelist autorizzata: ${AUTHORIZED_DEV_EUIS.join(", ")}`);
+    publicErrorLog();
     return { 
       ok: false, 
       status: STATUS_UNAUTHORIZED, 
@@ -693,8 +696,8 @@ async function ingestTtnWebhook(body) {
           try {
             const top = await fetchTopology();
             updateTopology(top);
-          } catch (e) {
-            console.error("[REFRESH_TOPOLOGY_FAIL]", e.message);
+          } catch {
+            publicErrorLog();
           }
         }, 100);
       }
@@ -712,7 +715,7 @@ async function ingestTtnWebhook(body) {
     const fCnt = validatedData.uplink_message?.f_cnt;
     const lastCnt = LAST_FRAME_COUNTERS.get(devEui);
     if (fCnt !== undefined && lastCnt !== undefined && fCnt < 5 && lastCnt > 100) {
-       void recordSensorReboot(sensorId).catch(e => console.error("[DB_REBOOT_FAIL]", e));
+       void recordSensorReboot(sensorId).catch(() => publicErrorLog());
     }
     LAST_FRAME_COUNTERS.set(devEui, fCnt);
 
@@ -771,8 +774,8 @@ async function ingestTtnWebhook(body) {
     setTimeout(() => {
       // Se la coda è piena, scarta il task più vecchio per far posto al nuovo (FIFO protection)
       if (analysisQueue.length >= MAX_ANALYSIS_QUEUE_SIZE) {
-        const dropped = analysisQueue.shift();
-        console.warn(`[OOM_PREVENTION] AnalysisQueue piena (${MAX_ANALYSIS_QUEUE_SIZE}). Scartato task più vecchio per prevenire crash memoria.`);
+        analysisQueue.shift();
+        publicErrorLog();
       }
 
       analysisQueue.push(async () => {
@@ -792,7 +795,7 @@ async function ingestTtnWebhook(body) {
             timestamp: tsUtc
           });
         } catch (err) {
-          console.error(`[analysisQueue] Errore analisi ${devEui}:`, err.message);
+          publicErrorLog();
         } finally {
           activeAnalyses--;
           processNextAnalysis();
@@ -807,12 +810,12 @@ async function ingestTtnWebhook(body) {
       detail: { ok: true, sensorId, devEui, value, timestamp: tsUtc.toISOString() }
     };
   });
-} catch (err) {
-  console.error(`[AUDIT_FAIL] Eccezione non gestita durante ingest: ${err.message}`, err.stack);
+} catch {
+  publicErrorLog();
   return {
     ok: false,
     status: 500,
-    detail: { error: "internal_server_error", message: "Errore imprevisto durante l'elaborazione del segnale." }
+    detail: { error: "internal_server_error", message: "Error" }
   };
 }
 }
@@ -824,7 +827,7 @@ function processNextAnalysis() {
   while (analysisQueue.length > 0 && activeAnalyses < MAX_CONCURRENT_ANALYSES) {
     const nextTask = analysisQueue.shift();
     activeAnalyses++;
-    nextTask().catch(err => console.error("[processNextAnalysis] Crash task:", err));
+    nextTask().catch(() => publicErrorLog());
   }
 }
 
@@ -853,8 +856,8 @@ async function analyzeWaterPacket(sensor, devEui, decoded, timestamp) {
       console.log(`[waterAnalytics] Alert generati per ${devEui}:`, analysis.alerts.map(a => a.type));
     }
 
-  } catch (error) {
-    console.error(`[waterAnalytics] Errore analisi pacchetto ${devEui}:`, error);
+  } catch {
+    publicErrorLog();
   }
 }
 
@@ -879,8 +882,8 @@ async function analyzeAirPacket(sensor, devEui, airData, timestamp) {
       console.log(`[airAnalytics] Alert generati per ${devEui}:`, analysis.alerts.map(a => a.title));
     }
 
-  } catch (error) {
-    console.error(`[airAnalytics] Errore analisi pacchetto ${devEui}:`, error);
+  } catch {
+    publicErrorLog();
   }
 }
 

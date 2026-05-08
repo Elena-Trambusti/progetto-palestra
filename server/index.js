@@ -203,6 +203,10 @@ if (IS_PROD) {
 }
 
 function logEvent(level, msg, extra = {}) {
+  if (level === "error" || level === "warn") {
+    console.error("Error");
+    return;
+  }
   const payload = {
     level,
     msg,
@@ -210,10 +214,6 @@ function logEvent(level, msg, extra = {}) {
     ...extra,
   };
   const line = JSON.stringify(payload);
-  if (level === "error" || level === "warn") {
-    console.error(line);
-    return;
-  }
   console.log(line);
 }
 
@@ -473,7 +473,8 @@ function normalizeReadingPayload(body) {
     null;
   const lightLux = body?.lightLux ?? sensors.lightLux ?? null;
   const flowLmin = body?.flowLmin ?? sensors.flowLmin ?? null;
-  const batteryPercent = body?.battery_level ?? body?.batteryPercent ?? body?.battery ?? null;
+  const battery_level_in =
+    body?.battery_level ?? body?.batteryPercent ?? body?.battery ?? null;
   const rssi = body?.rssi ?? null;
   const snr = body?.snr ?? null;
   const gatewayId =
@@ -1398,9 +1399,9 @@ app.get("/health", async (_req, res) => {
       await pgStore.withClient(async () => ({ ok: true }));
       checks.database.ok = true;
       checks.database.latencyMs = Date.now() - dbStart;
-    } catch (err) {
+    } catch {
       checks.database.ok = false;
-      checks.database.error = err.message;
+      checks.database.error = "Error";
     }
   }
 
@@ -1653,7 +1654,7 @@ app.get("/api/water/savings", limitApiRead, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[API] /api/water/savings error:", error);
+    logEvent("error", "water_savings_failed");
     res.status(500).json({
       error: "internal_error",
       message: "Errore recupero dati risparmio idrico",
@@ -2049,8 +2050,8 @@ app.get(
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(pdfBuffer);
     } catch (err) {
-      console.error("[report] Errore generazione PDF:", err);
-      res.status(500).json({ error: "Errore interno durante la generazione del report" });
+      logEvent("error", "report_pdf_failed");
+      res.status(500).json({ error: "Error" });
     }
   }
 );
@@ -2229,7 +2230,7 @@ app.post(
       logEvent("error", "admin_create_backup", {
         error: err && err.message ? err.message : String(err),
       });
-      res.status(500).json({ error: "backup_failed", message: err.message });
+      res.status(500).json({ error: "backup_failed", message: "Error" });
     }
   },
 );
@@ -2293,7 +2294,7 @@ app.post(
       });
       res
         .status(500)
-        .json({ error: "partition_maintenance_failed", message: err.message });
+        .json({ error: "partition_maintenance_failed", message: "Error" });
     }
   },
 );
@@ -2314,7 +2315,7 @@ app.post(
       });
       res
         .status(500)
-        .json({ error: "partition_create_failed", message: err.message });
+        .json({ error: "partition_create_failed", message: "Error" });
     }
   },
 );
@@ -2724,7 +2725,7 @@ app.get("/api/admin/migrate", requireOpsKey, async (req, res) => {
     });
     res.status(500).json({
       error: "migration_failed",
-      message: err?.message || "Errore esecuzione migrazione",
+      message: "Error",
       hint: "Verificare che il database sia accessibile e lo schema sia compatibile",
     });
   }
