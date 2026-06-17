@@ -59,6 +59,7 @@ export default function App() {
     vocIndex,
     lightLux,
     flowLmin,
+    sensorFault,
     activeAlarms,
     siteZones,
     networkNodes,
@@ -258,6 +259,7 @@ export default function App() {
                       vocIndex={vocIndex}
                       lightLux={lightLux}
                       flowLmin={flowLmin}
+                      sensorFault={sensorFault}
                       loading={dashboardLoading}
                     />
                   </ErrorBoundary>
@@ -301,6 +303,7 @@ export default function App() {
                       vocIndex={vocIndex}
                       lightLux={lightLux}
                       flowLmin={flowLmin}
+                      sensorFault={sensorFault}
                       loading={dashboardLoading}
                     />
                   </ErrorBoundary>

@@ -40,7 +40,15 @@ function getAirQualityStatus(index) {
 /**
  * Determina allarme CO2
  */
-function getCo2Alert(co2) {
+function getCo2Alert(co2, sensorFault) {
+  if (sensorFault) {
+    return {
+      level: 'critical',
+      icon: AlertTriangle,
+      message: sensorFault,
+      color: '#ef4444',
+    };
+  }
   if (co2 == null) return null;
   if (co2 > 1200) return { 
     level: 'critical', 
@@ -82,11 +90,12 @@ export default function AirQualityPanel({
   lightLux,
   humidityPercent,
   flowLmin,
+  sensorFault,
   loading,
 }) {
   const airQualityIndex = calculateAirQualityIndex(co2Ppm, vocIndex);
   const airQualityStatus = getAirQualityStatus(airQualityIndex);
-  const co2Alert = getCo2Alert(co2Ppm);
+  const co2Alert = getCo2Alert(co2Ppm, sensorFault);
   const lightAlert = getLightAlert(lightLux);
 
   return (
@@ -147,9 +156,9 @@ export default function AirQualityPanel({
               color: co2Alert ? co2Alert.color : 'inherit' 
             }}
           >
-            {fmt(co2Ppm, 0)}
+            {sensorFault ? "ERR" : fmt(co2Ppm, 0)}
           </strong>
-          <span className="air-quality-panel__unit">ppm</span>
+          <span className="air-quality-panel__unit">{sensorFault ? "" : "ppm"}</span>
           {co2Alert && (
             <div className="air-quality-panel__alert" style={{ color: co2Alert.color }}>
               <co2Alert.icon size={12} />

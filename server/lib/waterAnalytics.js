@@ -41,18 +41,14 @@ async function analyzeWaterData({ nodeId, flowLmin, levelPercent, timestamp = ne
   };
 
   try {
-    // Trova sensore nel database
-    const node = findNode(nodeId);
-    if (!node) {
-      console.warn(`[waterAnalytics] Nodo ${nodeId} non trovato in zonesData`);
-      return results;
-    }
-
     const sensor = await findSensorByDevEui(nodeId);
     if (!sensor) {
       console.warn(`[waterAnalytics] Sensore ${nodeId} non trovato nel database`);
       return results;
     }
+
+    const node = findNode(nodeId) || findNode(sensor.dev_eui) || null;
+    const zoneId = node?.zoneId || sensor.location || nodeId;
 
     // Recupera soglie configurate
     const thresholds = await getWaterThresholds(sensor.id);
@@ -94,7 +90,8 @@ async function analyzeWaterData({ nodeId, flowLmin, levelPercent, timestamp = ne
     }
 
     // 4. Analisi livello e perdite specifiche per zona
-    if (node.zoneId === 'controsoffitti') {
+    const zoneKey = String(zoneId || "").toLowerCase();
+    if (zoneKey.includes("controsoffitti")) {
       // Nei controsoffitti, se il livello (water_level_mm o presence) è > 0, è una perdita!
       if (levelPercent !== null && levelPercent > 0) {
         results.alerts.push({
@@ -133,7 +130,7 @@ async function analyzeWaterData({ nodeId, flowLmin, levelPercent, timestamp = ne
 
     // Invia notifiche Telegram per gli alert
     for (const alert of results.alerts) {
-      await sendWaterAlert({ nodeId, alert });
+      await sendWaterAlert({ nodeId, alert, zoneId });
     }
 
   } catch (error) {
@@ -224,11 +221,20 @@ async function checkMaintenanceStatus({ nodeId, totalLiters, threshold }) {
 /**
  * Invia notifica Telegram per allarme acqua
  */
-async function sendWaterAlert({ nodeId, alert }) {
-  const node = findNode(nodeId);
-  const zone = node ? findZone(node.zoneId) : null;
-  
-  const zoneName = zone?.name || node?.zoneId || 'Zona sconosciuta';
+async function sendWaterAlert({ nodeId, alert, zoneId: zoneIdIn }) {
+  const sensor = await findSensorByDevEui(nodeId).catch(() => null);
+  const node = findNode(nodeId) || (sensor ? findNode(sensor.dev_eui) : null);
+  const zone = zoneIdIn
+    ? findZone(zoneIdIn)
+    : node
+      ? findZone(node.zoneId)
+      : sensor?.location
+        ? findZone(sensor.location)
+        : null;
+
+  const zoneName =
+    zone?.name || sensor?.location || node?.zoneId || "Zona sconosciuta";
+  const effectiveZoneId = zone?.id || zoneIdIn || node?.zoneId || sensor?.location || "unknown";
   const locationText = zone ? `📍 ${zone.name}\n🗺️ Piano ${zone.floor}` : `📍 ${zoneName}`;
 
   const wasteText = alert.estimatedWaste > 0 
@@ -251,7 +257,7 @@ async function sendWaterAlert({ nodeId, alert }) {
   try {
     if (alert.severity === 'critical') {
       await notifyCriticalAlarm({
-        zoneId: node?.zoneId || 'unknown',
+        zoneId: effectiveZoneId,
         zoneName,
         type: alert.type,
         title: alert.title.replace(/[🚨🔧]/g, '').trim(),
@@ -262,7 +268,7 @@ async function sendWaterAlert({ nodeId, alert }) {
       });
     } else {
       await notifyWarning({
-        zoneId: node?.zoneId || 'unknown',
+        zoneId: effectiveZoneId,
         zoneName,
         type: alert.type,
         title: alert.title.replace(/[⚠️🔧]/g, '').trim(),
@@ -282,11 +288,6 @@ async function sendWaterAlert({ nodeId, alert }) {
  * Resetta contatori dopo manutenzione
  */
 async function resetWaterCounters(nodeId) {
-  const node = findNode(nodeId);
-  if (!node) {
-    throw new Error(`Nodo ${nodeId} non trovato`);
-  }
-
   const sensor = await findSensorByDevEui(nodeId);
   if (!sensor) {
     throw new Error(`Sensore ${nodeId} non trovato nel database`);

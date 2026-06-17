@@ -1,5 +1,7 @@
 /* eslint-disable no-console */
-require("dotenv").config();
+if (String(process.env.NODE_ENV || "").toLowerCase() !== "test") {
+  require("dotenv").config();
+}
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
@@ -136,6 +138,7 @@ const TELEGRAM_AUTO_MONITOR =
   String(process.env.TELEGRAM_AUTO_MONITOR || "").toLowerCase() === "true";
 const NODE_ENV = String(process.env.NODE_ENV || "development").toLowerCase();
 const IS_PROD = NODE_ENV === "production";
+const IS_TEST = NODE_ENV === "test";
 const TRUST_PROXY =
   String(process.env.TRUST_PROXY || "").toLowerCase() === "true";
 const AUTH_MIN_PASSWORD_LEN = Number(process.env.AUTH_MIN_PASSWORD_LEN) || 12;
@@ -179,6 +182,18 @@ if (REQUIRE_AUTH && !AUTH_PASSWORD) {
   process.exit(1);
 }
 
+if (IS_PROD && pgStore) {
+  const authorizedDevs = String(process.env.AUTHORIZED_DEV_EUIS || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (!authorizedDevs.length) {
+    console.warn(
+      "[config] AUTHORIZED_DEV_EUIS non impostata: l'ingest TTN rifiuterà tutti i dispositivi finché non configuri i DevEUI su Render.",
+    );
+  }
+}
+
 if (IS_PROD) {
   if (!REQUIRE_AUTH) {
     console.error("[config] In production REQUIRE_AUTH deve essere true.");
@@ -203,10 +218,6 @@ if (IS_PROD) {
 }
 
 function logEvent(level, msg, extra = {}) {
-  if (level === "error" || level === "warn") {
-    console.error("Error");
-    return;
-  }
   const payload = {
     level,
     msg,
@@ -214,6 +225,14 @@ function logEvent(level, msg, extra = {}) {
     ...extra,
   };
   const line = JSON.stringify(payload);
+  if (level === "error") {
+    console.error(line);
+    return;
+  }
+  if (level === "warn") {
+    console.warn(line);
+    return;
+  }
   console.log(line);
 }
 
@@ -1388,28 +1407,35 @@ app.use(protectDataApis);
 app.get("/health", async (_req, res) => {
   const checks = {
     server: { ok: true, uptimeSec: Math.floor(process.uptime()) },
-    database: { ok: false, latencyMs: null },
-    telegram: { ok: false, configured: false },
+    database: { ok: true, skipped: true, latencyMs: null },
+    telegram: { ok: true, configured: false, skipped: true },
   };
 
-  // Check database
   if (pgStore) {
+    checks.database.skipped = false;
+    checks.database.ok = false;
     const dbStart = Date.now();
     try {
       await pgStore.withClient(async () => ({ ok: true }));
       checks.database.ok = true;
       checks.database.latencyMs = Date.now() - dbStart;
-    } catch {
+    } catch (err) {
       checks.database.ok = false;
-      checks.database.error = "Error";
+      checks.database.error =
+        err && err.message ? err.message : "database_unreachable";
     }
   }
 
-  // Check Telegram
   checks.telegram.configured = isTelegramConfigured();
-  checks.telegram.ok = checks.telegram.configured;
+  if (checks.telegram.configured) {
+    checks.telegram.skipped = false;
+    checks.telegram.ok = true;
+  }
 
-  const allOk = checks.server.ok && checks.database.ok && checks.telegram.ok;
+  const allOk =
+    checks.server.ok &&
+    (checks.database.skipped || checks.database.ok) &&
+    (checks.telegram.skipped || checks.telegram.ok);
 
   res.status(allOk ? 200 : 503).json({
     ok: allOk,
@@ -1511,7 +1537,7 @@ app.get("/api/ops/summary", limitApiRead, (_req, res) => {
 
 app.get("/api/zones", limitApiRead, async (_req, res) => {
   return res.json({
-    dataProfile: "postgres",
+    dataProfile: pgStore ? "postgres" : "legacy",
     zones: ZONES,
     floors: FLOORS,
   });
@@ -2808,24 +2834,28 @@ function evaluateOpsAlerts() {
   opsAlertWindowState.ingestRejected = metrics.ingestRejected;
 }
 
-const ticker = setInterval(async () => {
-  if (!DISABLE_AUTO_TICK) {
-    for (const z of ZONES) {
-      await tickZone(z.id).catch((err) =>
-        logEvent("error", "tick_zone_failed", {
-          zoneId: z.id,
-          error: err.message,
-        }),
-      );
+let ticker = null;
+let opsAlertTicker = null;
+if (!IS_TEST) {
+  ticker = setInterval(async () => {
+    if (!DISABLE_AUTO_TICK) {
+      for (const z of ZONES) {
+        await tickZone(z.id).catch((err) =>
+          logEvent("error", "tick_zone_failed", {
+            zoneId: z.id,
+            error: err.message,
+          }),
+        );
+      }
     }
-  }
-  broadcastSnapshots().catch((err) =>
-    logEvent("error", "broadcast_snapshots", {
-      error: err && err.message ? err.message : String(err),
-    }),
-  );
-}, 30000);
-const opsAlertTicker = setInterval(evaluateOpsAlerts, OPS_ALERT_CHECK_EVERY_MS);
+    broadcastSnapshots().catch((err) =>
+      logEvent("error", "broadcast_snapshots", {
+        error: err && err.message ? err.message : String(err),
+      }),
+    );
+  }, 30000);
+  opsAlertTicker = setInterval(evaluateOpsAlerts, OPS_ALERT_CHECK_EVERY_MS);
+}
 
 // Backup automatico schedulato (se abilitato e PG disponibile)
 // BACKUP_TICKER_REMOVED
@@ -3000,12 +3030,14 @@ async function startHttpServer() {
       );
 
       // Monitoraggio batterie
-      const batteryMonitor = startBatteryMonitoring(() => store);
+      const batteryMonitor = startBatteryMonitoring(() => store, pgStore);
       console.log("     └─ Monitoraggio batterie ogni 5 min (soglie: 25%/15%)");
 
       // Monitoraggio rete
-      const networkMonitor = startNetworkMonitoring(() => store);
-      console.log("     └─ Monitoraggio rete ogni 5 min (offline dopo 10 min)");
+      const networkMonitor = startNetworkMonitoring(() => store, pgStore);
+      console.log(
+        `     └─ Monitoraggio rete ogni ${Math.round((Number(process.env.NETWORK_CHECK_INTERVAL_MS) || 60_000) / 60000)} min (offline dopo ${Math.round((Number(process.env.NODE_OFFLINE_TIMEOUT_MS) || 15 * 60 * 1000) / 60000)} min)`,
+      );
 
       // Cleanup in shutdown
       process.on("SIGTERM", () => {
@@ -3028,18 +3060,22 @@ async function startHttpServer() {
   });
 }
 
-void startHttpServer().catch((err) => {
-  console.error(
-    "[fatal] avvio server:",
-    err && err.message ? err.message : err,
-  );
-  process.exit(1);
-});
+if (!IS_TEST) {
+  void startHttpServer().catch((err) => {
+    console.error(
+      "[fatal] avvio server:",
+      err && err.message ? err.message : err,
+    );
+    process.exit(1);
+  });
+}
+
+module.exports = { app, server, store, wss };
 
 async function shutdown(signal) {
   logEvent("info", "shutdown_start", { signal });
-  clearInterval(ticker);
-  clearInterval(opsAlertTicker);
+  if (ticker) clearInterval(ticker);
+  if (opsAlertTicker) clearInterval(opsAlertTicker);
   if (pgStore) {
     try {
       await pgStore.closePool();

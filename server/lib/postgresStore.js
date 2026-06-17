@@ -116,6 +116,11 @@ async function ensureSchema(client) {
   await client.query(
     `CREATE INDEX IF NOT EXISTS idx_sensors_location ON sensors (location);`,
   );
+
+  await client.query(`
+    ALTER TABLE measurements ADD COLUMN IF NOT EXISTS humidity DOUBLE PRECISION;
+    ALTER TABLE measurements ADD COLUMN IF NOT EXISTS sensor_fault VARCHAR(64);
+  `);
   
   // -- Modularity 100%: Dynamic Topology --
   await client.query(`
@@ -454,6 +459,11 @@ async function fetchLatestMeasurements(sensorIds, client = null) {
       `SELECT DISTINCT ON (sensor_id)
          sensor_id,
          value,
+         co2,
+         voc,
+         lux,
+         humidity,
+         sensor_fault,
          rssi,
          snr,
          battery_level AS battery,
@@ -498,6 +508,8 @@ function measurementTimestampToUtcIso(timestamp) {
  * @param {number} [data.co2] - Valore CO2 opzionale
  * @param {number} [data.voc] - Valore VOC opzionale
  * @param {number} [data.lux] - Valore Illuminamento opzionale
+ * @param {number} [data.humidity] - Umidità relativa % opzionale
+ * @param {string} [data.sensor_fault] - Stato guasto sensore (es. Errore Sensore)
  * @param {string} [data.sensorType] - Tipologia sensore (es. 'water')
  * @param {number} [data.rssi] - Segnale radio
  * @param {number} [data.snr] - Rapporto segnale/rumore
@@ -514,6 +526,8 @@ async function insertMeasurement(data, client = null) {
     co2,
     voc,
     lux,
+    humidity,
+    sensor_fault,
     sensorType,
     rssi,
     snr,
@@ -527,8 +541,8 @@ async function insertMeasurement(data, client = null) {
   const exec = async (c) => {
     try {
       await c.query(
-        `INSERT INTO measurements (sensor_id, value, co2, voc, lux, sensor_type, rssi, snr, battery_level, f_cnt, timestamp)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz)
+        `INSERT INTO measurements (sensor_id, value, co2, voc, lux, humidity, sensor_fault, sensor_type, rssi, snr, battery_level, f_cnt, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz)
          ON CONFLICT (sensor_id, timestamp, (COALESCE(f_cnt, 0))) DO NOTHING`,
         [
           sensorId,
@@ -536,6 +550,8 @@ async function insertMeasurement(data, client = null) {
           co2 == null ? null : Math.floor(Number(co2)),
           voc == null ? null : Math.floor(Number(voc)),
           lux == null ? null : Math.floor(Number(lux)),
+          humidity == null ? null : Number(humidity),
+          sensor_fault == null ? null : String(sensor_fault),
           sensorType || null,
           rssi == null ? null : Number(rssi),
           snr == null ? null : Number(snr),
@@ -579,6 +595,7 @@ async function historySamplesForLocation(location, limit, range) {
               m.co2 AS co2,
               m.voc AS voc,
               m.lux AS lux,
+              m.humidity AS humidity,
               m.sensor_type AS "sensorType",
               s.type AS type,
               s.name AS name,
@@ -608,13 +625,13 @@ async function historySamplesForLocation(location, limit, range) {
       co2: row.co2 != null ? Number(row.co2) : null,
       voc: row.voc != null ? Number(row.voc) : null,
       lux: row.lux != null ? Number(row.lux) : null,
+      humidity: row.humidity != null ? Number(row.humidity) : null,
       sensorType: row.type,
       sensorData: row.sensorType, // Nuovo campo sensor_type
       sensorName: row.name,
       devEui: row.devEui != null ? String(row.devEui).toUpperCase() : "",
       minThreshold: row.minThreshold != null ? Number(row.minThreshold) : null,
       maxThreshold: row.maxThreshold != null ? Number(row.maxThreshold) : null,
-      humidity: null,
       rssi: row.rssi,
       snr: row.snr,
       battery: row.battery,
@@ -737,6 +754,7 @@ function environmentFromSensorCards(cards) {
     vocIndex: null,
     lightLux: null,
     flowLmin: null,
+    sensorFault: null,
   };
   for (const c of cards || []) {
     const ty = String(c.type || "").toLowerCase();
@@ -751,7 +769,13 @@ function environmentFromSensorCards(cards) {
     if (c.lux != null && Number.isFinite(Number(c.lux))) {
       env.lightLux = Number(c.lux);
     }
-    
+    if (c.humidity != null && Number.isFinite(Number(c.humidity))) {
+      env.humidityPercent = Number(c.humidity);
+    }
+    if (c.sensorFault) {
+      env.sensorFault = String(c.sensorFault);
+    }
+
     // Fallback alla logica basata sul tipo per compatibilità
     if (c.value == null || !Number.isFinite(Number(c.value))) continue;
     const v = Number(c.value);
@@ -820,6 +844,11 @@ async function buildDashboardPayload(location) {
         type: s.type,
         location: s.location,
         value: last ? Number(last.value) : null,
+        co2: last?.co2 != null ? Number(last.co2) : null,
+        voc: last?.voc != null ? Number(last.voc) : null,
+        lux: last?.lux != null ? Number(last.lux) : null,
+        humidity: last?.humidity != null ? Number(last.humidity) : null,
+        sensorFault: last?.sensor_fault ?? null,
         rssi: last?.rssi != null ? Number(last.rssi) : null,
         snr: last?.snr != null ? Number(last.snr) : null,
         battery: last?.battery != null ? Number(last.battery) : null,
@@ -897,7 +926,7 @@ async function buildDashboardPayload(location) {
             .includes("water")
             ? (last?.value ?? null)
             : null,
-          humidityPercent: null,
+          humidityPercent: last?.humidity != null ? Number(last.humidity) : null,
           lightLux: last?.lux != null ? Number(last.lux) : null,
           flowLmin: String(s.type || "")
             .toLowerCase()
@@ -906,6 +935,7 @@ async function buildDashboardPayload(location) {
             : null,
           co2Ppm: last?.co2 != null ? Number(last.co2) : null,
           vocIndex: last?.voc != null ? Number(last.voc) : null,
+          sensorFault: last?.sensor_fault ?? null,
         },
       };
     });

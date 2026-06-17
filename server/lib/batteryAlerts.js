@@ -42,6 +42,60 @@ function checkNodeBattery(node, store) {
 }
 
 /**
+ * Controllo batterie da PostgreSQL (ultime misure per sensore).
+ */
+async function checkAllBatteriesFromPg(pgStore) {
+  const results = [];
+  if (!pgStore) return results;
+
+  const sensors = await pgStore.listSensorsAll();
+  if (!sensors.length) return results;
+
+  const latest = await pgStore.fetchLatestMeasurements(sensors.map((s) => s.id));
+  for (const sensor of sensors) {
+    const row = latest.get(sensor.id);
+    const battery_level = row?.battery;
+    if (!Number.isFinite(Number(battery_level))) continue;
+
+    const nodeId = sensor.devEui || String(sensor.id);
+    let level = "ok";
+    if (battery_level <= CRITICAL_THRESHOLD) level = "critical";
+    else if (battery_level <= WARNING_THRESHOLD) level = "warning";
+
+    const previousLevel = lastBatteryState.get(nodeId) || "ok";
+    if (level !== previousLevel) {
+      if (level === "warning" || level === "critical") {
+        const result = await notifyBatteryAlert({
+          nodeId,
+          battery_level: Number(battery_level),
+          level,
+        });
+        if (result.ok || result.cooldown) {
+          lastBatteryState.set(nodeId, level);
+          results.push({ nodeId, action: "alert_sent", level });
+        }
+      } else if (
+        level === "ok" &&
+        (previousLevel === "warning" || previousLevel === "critical")
+      ) {
+        const result = await notifyRecovery({
+          nodeId,
+          type: "battery_ok",
+        });
+        if (result.ok) {
+          lastBatteryState.set(nodeId, "ok");
+          results.push({ nodeId, action: "recovery_sent" });
+        }
+      }
+    } else if (level === "ok") {
+      lastBatteryState.set(nodeId, "ok");
+    }
+  }
+
+  return results;
+}
+
+/**
  * Esegue controllo batterie di tutti i nodi
  * @param {Object} store - stato attuale del sistema
  * @returns {Promise<Array<{nodeId: string, action: string}>>}
@@ -90,17 +144,22 @@ async function checkAllBatteries(store) {
 /**
  * Avvia monitoraggio batterie periodico
  * @param {Function} getStore - funzione che ritorna lo stato attuale
+ * @param {Object|null} [pgStore] - store PostgreSQL per telemetria reale
  * @returns {{stop: Function, isRunning: Function}}
  */
-function startBatteryMonitoring(getStore) {
+function startBatteryMonitoring(getStore, pgStore = null) {
   let intervalId = null;
   let running = false;
+
+  const runCheck = async () => {
+    if (pgStore) return checkAllBatteriesFromPg(pgStore);
+    return checkAllBatteries(getStore());
+  };
 
   // Controllo immediato all'avvio
   setTimeout(async () => {
     try {
-      const store = getStore();
-      const results = await checkAllBatteries(store);
+      const results = await runCheck();
       if (results.length > 0) {
         console.log("[batteryAlerts] Controllo iniziale:", results);
       }
@@ -114,8 +173,7 @@ function startBatteryMonitoring(getStore) {
     if (!running) {
       running = true;
       try {
-        const store = getStore();
-        const results = await checkAllBatteries(store);
+        const results = await runCheck();
         if (results.length > 0) {
           console.log("[batteryAlerts] Controllo periodico:", results);
         }
@@ -176,6 +234,7 @@ async function checkSingleNodeBattery(nodeId, battery_level) {
 module.exports = {
   checkNodeBattery,
   checkAllBatteries,
+  checkAllBatteriesFromPg,
   startBatteryMonitoring,
   checkSingleNodeBattery,
   WARNING_THRESHOLD,

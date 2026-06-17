@@ -8,16 +8,17 @@ const express = require("express");
 // Mock environment variables for testing
 process.env.INGEST_SECRET = "test-secret-123";
 process.env.ADMIN_KEY = "test-admin-key";
-process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
+delete process.env.DATABASE_URL;
 process.env.NODE_ENV = "test";
 process.env.REQUIRE_AUTH = "false";
+process.env.DISABLE_AUTO_TICK = "true";
 
 describe("API Integration Tests", () => {
   let app;
 
   beforeAll(() => {
-    // Import app after setting env vars
-    app = require("../index");
+    // Import app after setting env vars (senza avvio HTTP in NODE_ENV=test)
+    ({ app } = require("../index"));
   });
 
   describe("Health Endpoints", () => {
@@ -84,7 +85,7 @@ describe("API Integration Tests", () => {
 
   describe("Swagger Docs", () => {
     test("GET /api/docs - dovrebbe servire UI Swagger", async () => {
-      const res = await request(app).get("/api/docs");
+      const res = await request(app).get("/api/docs/").redirects(1);
       expect(res.status).toBe(200);
       expect(res.text).toContain("swagger-ui");
     });
@@ -98,8 +99,8 @@ describe("Joi Validation Tests", () => {
     const payload = {
       end_device_ids: { dev_eui: "AABBCCDDEEFF0011" },
       uplink_message: {
-        decoded_payload: { temperatureC: 22, batteryPercent: 85 },
-        rx_metadata: [{ rssi: -80, snr: 8 }],
+        decoded_payload: { temperatureC: 22, battery_level: 85 },
+        rx_metadata: [{ rssi: -80, snr: 8, gateway_id: "gw-test-01" }],
       },
       received_at: "2026-05-03T12:00:00Z",
     };
@@ -114,6 +115,18 @@ describe("Joi Validation Tests", () => {
     const result = validateTtnPayload(payload);
     expect(result.valid).toBe(false);
     expect(result.error).toBe("validation_error");
+  });
+
+  test("dovrebbe accettare temperatura negativa", () => {
+    const payload = {
+      end_device_ids: { dev_eui: "AABBCCDDEEFF0011" },
+      uplink_message: {
+        decoded_payload: { temperatureC: -4.2 },
+      },
+      received_at: "2026-05-03T12:00:00Z",
+    };
+    const result = validateTtnPayload(payload);
+    expect(result.valid).toBe(true);
   });
 
   test("dovrebbe rifiutare temperature fuori range", () => {

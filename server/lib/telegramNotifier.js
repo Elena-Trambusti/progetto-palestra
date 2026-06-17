@@ -6,6 +6,13 @@
 const { sendTelegramMessage, isTelegramConfigured } = require("./telegram");
 const { findZone, findNode } = require("./zonesData");
 
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 // Cooldown per evitare spam
 const COOLDOWN_CRITICAL_MS =
   Number(process.env.TELEGRAM_COOLDOWN_CRITICAL_MS) || 5 * 60 * 1000; // 5 min
@@ -18,6 +25,8 @@ const lastCriticalSent = new Map();
 const lastWarningSent = new Map();
 /** @type {Map<string, number>} */
 const lastMaintenanceSent = new Map();
+/** @type {Map<string, number>} */
+const lastRecoverySent = new Map();
 
 // Tipi di alert manutenzione
 const MAINTENANCE_TYPES = {
@@ -116,21 +125,21 @@ async function notifyCriticalAlarm({
   const zone = findZone(zoneId);
 
 
-  const header = `🚨 <b>ALLARME CRITICO: ${title}</b>`;
+  const header = `🚨 <b>ALLARME CRITICO: ${escapeHtml(title)}</b>`;
   const separator = '━'.repeat(25);
   
   const zoneInfo = zone
-    ? `📍 <b>Zona:</b> [${zone.id.toUpperCase()}] ${zone.name}\n🗺️ <b>Piano:</b> ${zone.floor}`
-    : `📍 <b>Zona:</b> ${zoneName || zoneId}`;
+    ? `📍 <b>Zona:</b> [${escapeHtml(zone.id.toUpperCase())}] ${escapeHtml(zone.name)}\n🗺️ <b>Piano:</b> ${escapeHtml(zone.floor)}`
+    : `📍 <b>Zona:</b> ${escapeHtml(zoneName || zoneId)}`;
 
-  const valueText = value != null ? `📊 <b>Valore:</b> ${value}${unit}` : "";
-  const actionText = action ? `\n⚡ <b>Azione:</b> ${action}` : "";
+  const valueText = value != null ? `📊 <b>Valore:</b> ${value}${escapeHtml(unit)}` : "";
+  const actionText = action ? `\n⚡ <b>Azione:</b> ${escapeHtml(action)}` : "";
 
   const text = [
     header,
     separator,
     "",
-    `📝 ${message}`,
+    `📝 ${escapeHtml(message)}`,
     "",
     valueText,
     zoneInfo,
@@ -178,20 +187,20 @@ async function notifyWarning({
 
   const zone = findZone(zoneId);
 
-  const header = `⚠️ <b>WARNING: ${title}</b>`;
+  const header = `⚠️ <b>WARNING: ${escapeHtml(title)}</b>`;
   const separator = '━'.repeat(25);
   
   const zoneInfo = zone
-    ? `📍 <b>Zona:</b> [${zone.id.toUpperCase()}] ${zone.name}\n🗺️ <b>Piano:</b> ${zone.floor}`
-    : `📍 <b>Zona:</b> ${zoneName || zoneId}`;
+    ? `📍 <b>Zona:</b> [${escapeHtml(zone.id.toUpperCase())}] ${escapeHtml(zone.name)}\n🗺️ <b>Piano:</b> ${escapeHtml(zone.floor)}`
+    : `📍 <b>Zona:</b> ${escapeHtml(zoneName || zoneId)}`;
 
-  const valueText = value != null ? `📊 <b>Valore:</b> ${value}${unit}` : "";
+  const valueText = value != null ? `📊 <b>Valore:</b> ${value}${escapeHtml(unit)}` : "";
 
   const text = [
     header,
     separator,
     "",
-    `📝 ${message}`,
+    `📝 ${escapeHtml(message)}`,
     "",
     valueText,
     zoneInfo,
@@ -243,14 +252,14 @@ async function notifyBatteryAlert({ nodeId, battery_level, level }) {
     : "Pianificare ricarica entro 24-48h";
 
   const text = [
-    `${emoji} <b>${title}</b>`,
+    `${emoji} <b>${escapeHtml(title)}</b>`,
     "",
     `🔋 Livello: ${battery_level}%`,
-    `📡 Nodo: ${nodeName} (${nodeId})`,
+    `📡 Nodo: ${escapeHtml(nodeName)} (<code>${escapeHtml(nodeId)}</code>)`,
     "",
-    `📍 ${zoneName}\n🗺️ Piano ${floor}`,
+    `📍 ${escapeHtml(zoneName)}\n🗺️ Piano ${escapeHtml(floor)}`,
     "",
-    `⚡ <b>Azione consigliata:</b> ${action}`,
+    `⚡ <b>Azione consigliata:</b> ${escapeHtml(action)}`,
     "",
     `🕐 ${formatItalianTime()} (ITA)`,
   ].join("\n");
@@ -285,9 +294,9 @@ async function notifyNodeOffline({ nodeId, minutesOffline }) {
   }
 
   const text = [
-    `❌ <b>ATTENZIONE: Nodo ${zoneName} risulta OFFLINE</b>`,
+    `❌ <b>ATTENZIONE: Nodo ${escapeHtml(zoneName)} risulta OFFLINE</b>`,
     "",
-    `📡 Nodo: ${nodeName} (${nodeId})`,
+    `📡 Nodo: ${escapeHtml(nodeName)} (<code>${escapeHtml(nodeId)}</code>)`,
     `⏱️ Ultimo contatto: ${minutesOffline} minuti fa`,
     "",
     `📍 Posizione: ${zoneName}\n🗺️ Piano: ${floor}`,
@@ -386,10 +395,8 @@ async function notifyRecovery({ nodeId, type }) {
     `🕐 ${formatItalianTime()} (ITA)`,
   ].join("\n");
 
-  // Per i ripristini usiamo cooldown più breve (1 min)
   const key = `recovery:${nodeId}:${type}`;
-  const map = new Map(); // cooldown separato per ripristini
-  if (!canSend(key, 60000, map)) {
+  if (!canSend(key, 60000, lastRecoverySent)) {
     return { ok: false, cooldown: true };
   }
 
@@ -544,5 +551,6 @@ module.exports = {
     lastCriticalSent.clear();
     lastWarningSent.clear();
     lastMaintenanceSent.clear();
+    lastRecoverySent.clear();
   },
 };

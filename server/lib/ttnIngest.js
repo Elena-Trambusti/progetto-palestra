@@ -38,10 +38,71 @@ const LAST_FRAME_COUNTERS = new Map();
 const analysisQueue = [];
 let activeAnalyses = 0;
 
-const AUTHORIZED_DEV_EUIS = (process.env.AUTHORIZED_DEV_EUIS || "").split(",").map(id => id.trim()).filter(Boolean);
+const AUTHORIZED_DEV_EUIS = (process.env.AUTHORIZED_DEV_EUIS || "")
+  .split(",")
+  .map((id) => id.trim())
+  .filter(Boolean);
+const IS_PROD =
+  String(process.env.NODE_ENV || "development").toLowerCase() === "production";
 
-function publicErrorLog() {
-  console.error("Error");
+function publicErrorLog(context, err) {
+  const msg = err && err.message ? err.message : String(err || "unknown_error");
+  console.error(`[ttnIngest] ${context}: ${msg}`);
+}
+
+function isDevEuiAuthorized(devEui) {
+  if (AUTHORIZED_DEV_EUIS.length > 0) {
+    return AUTHORIZED_DEV_EUIS.some(
+      (id) => id.toUpperCase() === String(devEui).toUpperCase(),
+    );
+  }
+  if (IS_PROD) return false;
+  return true;
+}
+
+/** Tipi anagrafica che trattano CO₂/VOC/lux come telemetria aria. */
+function isAirSensorType(sensorType) {
+  const t = String(sensorType || "").toLowerCase();
+  return (
+    t === "air" ||
+    t.includes("ambiente") ||
+    t.includes("co2") ||
+    t.includes("qualità") ||
+    t.includes("qualita") ||
+    t.includes("iaq")
+  );
+}
+
+const DECODED_PAYLOAD_FIELD_KEYS = [
+  "temperature",
+  "temp",
+  "temperatureC",
+  "co2",
+  "co2Ppm",
+  "humidity",
+  "humidityPercent",
+  "rh",
+  "level",
+  "levelPercent",
+  "lux",
+  "lightLux",
+  "voc",
+  "vocIndex",
+  "iaq",
+  "flow",
+  "flowLmin",
+  "battery_level",
+  "batteryPercent",
+  "battery",
+  "bat",
+  "vbat",
+  "sensorFault",
+];
+
+function hasMeaningfulDecodedPayload(decoded) {
+  if (!decoded || typeof decoded !== "object") return false;
+  if (decoded._mkrDecoded) return true;
+  return DECODED_PAYLOAD_FIELD_KEYS.some((k) => decoded[k] != null);
 }
 
 const ttnIngestSchema = Joi.object({
@@ -62,7 +123,10 @@ const ttnIngestSchema = Joi.object({
       levelPercent: Joi.number().min(0).max(100).optional(),
       flowLmin: Joi.number().min(0).max(200).optional(),
       battery_level: Joi.number().integer().min(0).max(100).optional(),
-    }).required(),
+      sensorFault: Joi.string().max(64).optional(),
+    }).optional(),
+    frm_payload: Joi.string().allow("").optional(),
+    f_port: Joi.number().integer().min(0).max(255).optional(),
     rx_metadata: Joi.array().items(
       Joi.object({
         rssi: Joi.number().min(-160).max(-30).required(),
@@ -475,10 +539,9 @@ function extractTtnFields(body) {
   const payloadMeta = frmPayloadToBuffer(rawB64);
   const buf = payloadMeta.ok ? payloadMeta.buffer : null;
 
-  // ---- MKR WAN 1310: tenta decoder nativo prima del fallback generico ----
-  // Il f_port determina il tipo di nodo (1=CO2/Ambiente, 2=Idrico)
+  // ---- MKR WAN 1310: tenta decoder nativo se decoded_payload assente/vuoto ----
   const fPort = msg.f_port ?? msg.port ?? null;
-  if (!decoded && buf && Number.isInteger(fPort)) {
+  if (!hasMeaningfulDecodedPayload(decoded) && buf && Number.isInteger(fPort)) {
     const mkrDecoded = decodeMkrPayload(buf, fPort);
     if (mkrDecoded) {
       decoded = mkrDecoded;
@@ -620,20 +683,19 @@ async function ingestTtnWebhook(body) {
     return { ok: false, status: STATUS_BAD_REQUEST, detail: { error: "dev_eui_missing" } };
   }
 
-  // WHITELIST RIGOROSA (Senior Security Engineer Mode)
-  const isAuthorized = AUTHORIZED_DEV_EUIS.some(id => id.toUpperCase() === devEui.toUpperCase());
-  
-  if (!isAuthorized) {
-    publicErrorLog();
-    return { 
-      ok: false, 
-      status: STATUS_UNAUTHORIZED, 
-      detail: { 
-        error: "unauthorized_device", 
-        message: "Dispositivo non presente nella whitelist di sicurezza",
+  if (!isDevEuiAuthorized(devEui)) {
+    publicErrorLog("unauthorized_device", new Error(devEui));
+    return {
+      ok: false,
+      status: STATUS_UNAUTHORIZED,
+      detail: {
+        error: "unauthorized_device",
+        message: AUTHORIZED_DEV_EUIS.length
+          ? "Dispositivo non presente nella whitelist di sicurezza"
+          : "AUTHORIZED_DEV_EUIS non configurata in produzione",
         received: devEui,
-        expectedOneOf: AUTHORIZED_DEV_EUIS
-      } 
+        expectedOneOf: AUTHORIZED_DEV_EUIS,
+      },
     };
   }
 
@@ -650,33 +712,28 @@ async function ingestTtnWebhook(body) {
   }
   DEV_EUI_RATE_LIMIT_MAP.set(devEui, nowMs);
 
-  // 2. DEDUPLICAZIONE E REBOOT DETECTION
+  // 2. DEDUPLICAZIONE E REBOOT DETECTION (solo lettura: f_cnt aggiornato dopo insert OK)
   const fCnt = validatedData.uplink_message?.f_cnt;
+  let hardwareRebootDetected = false;
   if (fCnt !== undefined) {
     const lastCnt = LAST_FRAME_COUNTERS.get(devEui);
     if (lastCnt !== undefined) {
-      // Caso A: Reboot Hardware (Contatore tornato a zero)
       if (fCnt < 5 && lastCnt > 100) {
+        hardwareRebootDetected = true;
         console.log(`[REBOOT_DETECTED] Rilevato reboot hardware per nodo: ${devEui}`);
-        // Nota: sensor viene recuperato dopo, quindi sposto la registrazione DB
-        // sotto la chiamata findSensorByDevEui
-        
         void notifyInfo({
           title: "Rilevato Riavvio Hardware",
           message: `Il sensore ha resettato il contatore (da ${lastCnt} a ${fCnt}).\nIl sistema ha ripristinato la sessione automaticamente.`,
           nodeId: devEui
         }).catch(() => {});
-      } 
-      // Caso B: Duplicato o Fuori Ordine
-      else if (fCnt <= lastCnt) {
-        return { 
-          ok: false, 
-          status: STATUS_OK, 
-          detail: { error: "duplicate_frame", devEui, fCnt, lastCnt } 
+      } else if (fCnt <= lastCnt) {
+        return {
+          ok: false,
+          status: STATUS_OK,
+          detail: { error: "duplicate_frame", devEui, fCnt, lastCnt },
         };
       }
     }
-    LAST_FRAME_COUNTERS.set(devEui, fCnt);
   }
 
   // 2. SESSIONE ATOMICA (Senior Architect Implementation)
@@ -719,14 +776,6 @@ async function ingestTtnWebhook(body) {
 
     const sensorId = parseInt(sensor.id);
 
-    // Registra reboot hardware se rilevato (contatore resettato)
-    const fCnt = validatedData.uplink_message?.f_cnt;
-    const lastCnt = LAST_FRAME_COUNTERS.get(devEui);
-    if (fCnt !== undefined && lastCnt !== undefined && fCnt < 5 && lastCnt > 100) {
-       void recordSensorReboot(sensorId).catch(() => publicErrorLog());
-    }
-    LAST_FRAME_COUNTERS.set(devEui, fCnt);
-
     // ---- ESTRAZIONE VALORE PRIMARIO ----
     // Per payload MKR (_mkrDecoded=true), `value` deve essere la temperatura (campo
     // semantico del DB). pickDecodedNumeric() ritornerebbe co2Ppm per primo (trovato
@@ -758,8 +807,9 @@ async function ingestTtnWebhook(body) {
     const tsUtc = parseIngestTimestampUtc(tsRaw);
     const sensorInfo = extractSensorData(devEui, decoded, sensor);
 
+    const isAir = isAirSensorType(sensorInfo.type);
     const co2ValueRaw =
-      sensorInfo.type === "air" && Number.isFinite(Number(sensorInfo.data.co2Ppm))
+      isAir && Number.isFinite(Number(sensorInfo.data.co2Ppm))
         ? Math.floor(Number(sensorInfo.data.co2Ppm))
         : null;
     const co2SensorFault =
@@ -769,6 +819,14 @@ async function ingestTtnWebhook(body) {
       sensorInfo.data.co2Ppm = null;
       sensorInfo.data.sensorFault = "Errore Sensore";
     }
+
+    const humidityRaw = Number(
+      sensorInfo.data.humidityPercent ?? sensorInfo.data.humidity ?? decoded?.humidityPercent,
+    );
+    const normalizedHumidity =
+      Number.isFinite(humidityRaw) && humidityRaw >= 0 && humidityRaw <= 100
+        ? humidityRaw
+        : null;
 
     const measurementData = {
       sensorId: sensorId,
@@ -780,8 +838,14 @@ async function ingestTtnWebhook(body) {
       f_cnt: fCnt,
       timestamp: tsUtc,
       co2: normalizedCo2,
-      voc: (sensorInfo.type === 'air' && Number.isFinite(Number(sensorInfo.data.vocIndex))) ? Math.floor(Number(sensorInfo.data.vocIndex)) : null,
-      lux: (sensorInfo.type === 'air' && Number.isFinite(Number(sensorInfo.data.lux))) ? Math.floor(Number(sensorInfo.data.lux)) : null,
+      voc: isAir && Number.isFinite(Number(sensorInfo.data.vocIndex))
+        ? Math.floor(Number(sensorInfo.data.vocIndex))
+        : null,
+      lux: isAir && Number.isFinite(Number(sensorInfo.data.lux))
+        ? Math.floor(Number(sensorInfo.data.lux))
+        : null,
+      humidity: normalizedHumidity,
+      sensor_fault: co2SensorFault ? "Errore Sensore" : null,
     };
 
     try {
@@ -789,6 +853,17 @@ async function ingestTtnWebhook(body) {
     } catch (err) {
       return databaseFailureResponse(err, "insertMeasurement");
     }
+
+    if (fCnt !== undefined) {
+      LAST_FRAME_COUNTERS.set(devEui, fCnt);
+    }
+    if (hardwareRebootDetected) {
+      void recordSensorReboot(sensorId).catch(() => publicErrorLog("record_reboot_failed"));
+    }
+
+    void maybeNotifyThresholdAlarm(sensor, Number(value)).catch((err) =>
+      publicErrorLog("threshold_alarm_failed", err),
+    );
 
     // Avvio analisi asincrona (Motore parallelo ottimizzato con protezione OOM)
     setTimeout(() => {
@@ -911,7 +986,9 @@ module.exports = {
   extractTtnFields,
   binaryDecodeCategory,
   decodeBinaryForSensorType,
-  decodeMkrPayload,          // Esportato per test unitari
+  decodeMkrPayload,
+  hasMeaningfulDecodedPayload,
+  isAirSensorType,
   ingestTtnWebhook,
   frmPayloadToBuffer,
   parseIngestTimestampUtc,

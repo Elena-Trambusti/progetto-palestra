@@ -106,6 +106,7 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
   const [vocIndex, setVocIndex] = useState(null);
   const [lightLux, setLightLux] = useState(null);
   const [flowLmin, setFlowLmin] = useState(null);
+  const [sensorFault, setSensorFault] = useState(null);
   const [activeAlarms, setActiveAlarms] = useState([]);
   const [siteZones, setSiteZones] = useState([]);
   const [networkNodes, setNetworkNodes] = useState([]);
@@ -175,6 +176,11 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
       setVocIndex(snap.vocIndex != null && Number.isFinite(snap.vocIndex) ? snap.vocIndex : null);
       setLightLux(snap.lightLux != null && Number.isFinite(snap.lightLux) ? snap.lightLux : null);
       setFlowLmin(snap.flowLmin != null && Number.isFinite(snap.flowLmin) ? snap.flowLmin : null);
+      setSensorFault(
+        typeof snap.sensorFault === "string" && snap.sensorFault.trim()
+          ? snap.sensorFault.trim()
+          : null
+      );
       setSensorCards(Array.isArray(snap.sensorCards) ? snap.sensorCards : []);
       setDataProfile(snap.dataProfile != null ? snap.dataProfile : null);
       setActiveAlarms(Array.isArray(snap.activeAlarms) ? snap.activeAlarms : []);
@@ -641,6 +647,7 @@ export function useDashboardSensors(zoneId, authEpoch = 0) {
     vocIndex,
     lightLux,
     flowLmin,
+    sensorFault,
     activeAlarms,
     siteZones,
     networkNodes,

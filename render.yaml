@@ -20,7 +20,13 @@ services:
       - key: AUTH_PASSWORD
         generateValue: true
       - key: INGEST_SECRET
-        value: Supersegreto2026
+        generateValue: true
+      - key: AUTHORIZED_DEV_EUIS
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
       - key: TRUST_PROXY
         value: "true"
       - key: DATABASE_URL

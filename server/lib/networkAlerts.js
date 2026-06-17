@@ -68,6 +68,81 @@ function isSignalWeak(nodeState) {
 }
 
 /**
+ * Controllo rete da PostgreSQL (ultime misure per sensore).
+ */
+async function checkAllNetworkStatusFromPg(pgStore) {
+  const results = [];
+  if (!pgStore) return results;
+
+  const sensors = await pgStore.listSensorsAll();
+  if (!sensors.length) return results;
+
+  const latest = await pgStore.fetchLatestMeasurements(sensors.map((s) => s.id));
+  for (const sensor of sensors) {
+    const row = latest.get(sensor.id);
+    const nodeId = sensor.devEui || String(sensor.id);
+    const nodeState = {
+      uplinkAt: row?.timestamp || null,
+      rssi: row?.rssi ?? null,
+      snr: row?.snr ?? null,
+    };
+
+    const { offline, minutes } = isNodeOffline(nodeState);
+    const { weak, rssi, snr } = isSignalWeak(nodeState);
+    const previous = lastNetworkState.get(nodeId) || { status: "unknown", since: 0 };
+
+    if (offline) {
+      if (previous.status !== "offline") {
+        const result = await notifyNodeOffline({
+          nodeId,
+          minutesOffline: minutes,
+        });
+        if (result.ok || result.cooldown) {
+          lastNetworkState.set(nodeId, {
+            status: "offline",
+            since: Date.now(),
+          });
+          results.push({ nodeId, action: "offline_alert", minutes });
+        }
+      }
+      continue;
+    }
+
+    if (weak && rssi != null) {
+      const latched = weakSignalLatched.get(nodeId);
+      if (!latched) {
+        const result = await notifyWeakSignal({
+          nodeId,
+          rssi,
+          snr: snr || 0,
+        });
+        if (result.ok) {
+          weakSignalLatched.set(nodeId, true);
+          results.push({ nodeId, action: "weak_signal_alert", rssi });
+        }
+      }
+    } else if (!weak && weakSignalLatched.get(nodeId)) {
+      weakSignalLatched.delete(nodeId);
+    }
+
+    if (previous.status === "offline" && !offline) {
+      const result = await notifyRecovery({
+        nodeId,
+        type: "online",
+      });
+      if (result.ok) {
+        lastNetworkState.set(nodeId, { status: "online", since: Date.now() });
+        results.push({ nodeId, action: "recovery_sent" });
+      }
+    } else {
+      lastNetworkState.set(nodeId, { status: "online", since: Date.now() });
+    }
+  }
+
+  return results;
+}
+
+/**
  * Controlla tutti i nodi e invia notifiche se necessario
  * @param {Object} store - stato attuale del sistema
  * @returns {Promise<Array>}
@@ -142,17 +217,22 @@ async function checkAllNetworkStatus(store) {
 /**
  * Avvia monitoraggio rete periodico
  * @param {Function} getStore - funzione che ritorna lo stato attuale
+ * @param {Object|null} [pgStore] - store PostgreSQL per telemetria reale
  * @returns {{stop: Function, isRunning: Function, getLastStates: Function}}
  */
-function startNetworkMonitoring(getStore) {
+function startNetworkMonitoring(getStore, pgStore = null) {
   let intervalId = null;
   let running = false;
+
+  const runCheck = async () => {
+    if (pgStore) return checkAllNetworkStatusFromPg(pgStore);
+    return checkAllNetworkStatus(getStore());
+  };
 
   // Primo controllo dopo 10 secondi
   setTimeout(async () => {
     try {
-      const store = getStore();
-      const results = await checkAllNetworkStatus(store);
+      const results = await runCheck();
       if (results.length > 0) {
         console.log("[networkAlerts] Controllo iniziale:", results);
       }
@@ -166,8 +246,7 @@ function startNetworkMonitoring(getStore) {
     if (!running) {
       running = true;
       try {
-        const store = getStore();
-        const results = await checkAllNetworkStatus(store);
+        const results = await runCheck();
         if (results.length > 0) {
           console.log("[networkAlerts] Controllo periodico:", results);
         }
@@ -227,6 +306,7 @@ module.exports = {
   isNodeOffline,
   isSignalWeak,
   checkAllNetworkStatus,
+  checkAllNetworkStatusFromPg,
   startNetworkMonitoring,
   checkSingleNodeNetwork,
   OFFLINE_TIMEOUT_MS,

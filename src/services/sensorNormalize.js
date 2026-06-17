@@ -126,6 +126,10 @@ export function normalizeDashboardPayload(data) {
   const vocIndex = num(env.vocIndex ?? env.voc ?? data.vocIndex, NaN);
   const lightLux = num(env.lightLux ?? data.lightLux, NaN);
   const flowLmin = num(env.flowLmin ?? data.flowLmin, NaN);
+  const sensorFault =
+    typeof env.sensorFault === "string" && env.sensorFault.trim()
+      ? env.sensorFault.trim()
+      : null;
 
   const siteZones = Array.isArray(data.siteZones) ? data.siteZones : [];
   const floors = Array.isArray(data.floors) ? data.floors : [];
@@ -190,6 +194,7 @@ export function normalizeDashboardPayload(data) {
     vocIndex: Number.isFinite(vocIndex) ? vocIndex : null,
     lightLux: Number.isFinite(lightLux) ? lightLux : null,
     flowLmin: Number.isFinite(flowLmin) ? flowLmin : null,
+    sensorFault,
     activeAlarms: parseAlarms(data.activeAlarms),
     siteZones,
     floors,
